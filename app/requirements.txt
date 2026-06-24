@@ -11,10 +11,8 @@ fpdf2
 
 # Face Recognition
 scikit-learn
-# dlib-bin
-# dlib-bin
-# face-recognition
-# face-recognition-models
+dlib-bin
+face-recognition-models
 setuptools<70.0.0
 
 # Password hashing
