@@ -8,6 +8,7 @@ python-multipart
 numpy
 pandas
 fpdf2
+plotly
 
 # Face Recognition
 scikit-learn
