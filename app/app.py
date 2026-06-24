@@ -1,3 +1,9 @@
+import sys
+import os
+
+# Ensure the 'app' directory is in the Python path so Streamlit Cloud can find 'src'
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 import streamlit as st
 from PIL import Image
 
