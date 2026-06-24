@@ -12,8 +12,7 @@ fpdf2
 # Face Recognition
 scikit-learn
 dlib-bin; sys_platform == 'win32'
-dlib @ https://github.com/Mage-r/dlib-bin/releases/download/v19.24.2/dlib-19.24.2-cp310-cp310-linux_x86_64.whl ; sys_platform == 'linux'
-dlib; sys_platform == 'darwin'
+dlib; sys_platform != 'win32'
 face-recognition
 face-recognition-models
 setuptools<70.0.0
