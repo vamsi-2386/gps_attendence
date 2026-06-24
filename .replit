@@ -1,0 +1,23 @@
+modules = ["python-3.11", "nodejs-20"]
+
+run = """
+# Install node packages if missing
+if [ ! -d "mobile_app/node_modules" ]; then
+  echo "Installing Mobile App Dependencies..."
+  cd mobile_app && npm install && cd ..
+fi
+
+# Start the Python Backend and the Expo Mobile Web App simultaneously
+echo "Starting Backend API on port 8501..."
+cd app && python -m uvicorn app:app --host 0.0.0.0 --port 8501 &
+
+echo "Starting Mobile App on port 8081..."
+cd mobile_app && npm run web
+"""
+
+[nix]
+channel = "stable-23_11"
+
+[deployment]
+run = ["sh", "-c", "cd app && python -m uvicorn app:app --host 0.0.0.0 --port 8501 & cd mobile_app && npm run web"]
+deploymentTarget = "cloudrun"

@@ -1,0 +1,639 @@
+================================================================================
+FLUTTER HRMS APP - CHECK-IN FLOW TESTING CHECKLIST
+================================================================================
+Test Date: __________ | Tester Name: ________________________
+
+================================================================================
+SECTION 1: ENVIRONMENT SETUP
+================================================================================
+
+[ ] Supabase credentials configured in:
+    - Flutter: lib/config/supabase_config.dart
+    - Streamlit: app/src/database/supabase_client.py
+
+[ ] FastAPI backend running on http://10.79.79.4:8000
+    Verify: curl http://10.79.79.4:8000/api/v1/health
+
+[ ] Streamlit app running on http://localhost:8501
+    Command: cd /app && streamlit run app.py
+
+[ ] Flutter app deployed to device/emulator
+    Command: cd lumenor_hrms_flutter && flutter run
+
+[ ] Test employee created via Streamlit registration
+    Employee Code: ________________________
+    Name: ________________________
+    Face Enrollment: [ ] Complete
+
+[ ] Test company created with office location
+    Company Name: ________________________
+    Office Latitude: ________________________
+    Office Longitude: ________________________
+    Geofence Radius: ________ meters (default: 100m)
+
+
+================================================================================
+SECTION 2: LOGIN FLOW
+================================================================================
+
+[ ] Streamlit login page loads
+    - "Login via FaceID" button visible
+    - Camera input widget appears
+
+[ ] Face capture works
+    - Camera permissions granted
+    - Image captured successfully
+    - Debug: "Image sent to AI" caption shown
+
+[ ] Face recognition completes
+    - Takes <10 seconds
+    - Returns decision: Accepted/Review/Rejected
+
+[ ] Successful login
+    - Employee data loaded in session
+    - Dashboard displayed with employee name
+    - "Logout" button visible
+
+[ ] Login failure handled
+    - No face detected: Warning shown
+    - Low confidence: Error message displayed
+    - Can retry without restart
+
+
+================================================================================
+SECTION 3: GEOFENCE VALIDATION
+================================================================================
+
+TEST 3A: INSIDE OFFICE GEOFENCE
+---------------------------------
+
+[ ] Device location enabled and shared
+    - Geolocation popup appeared
+    - Permission granted
+
+[ ] Location received
+    - Your Latitude displayed: ________________________
+    - Your Longitude displayed: ________________________
+    - Distance to Office shown: ________ m
+
+[ ] Geofence calculation correct
+    - Distance < 100m (or configured radius)
+    - Map shows device pin inside blue circle
+    - Distance line shows "✅ Inside"
+
+[ ] Banner styling correct
+    - Color: Blue/purple gradient (5865F2 to 8A2BE2)
+    - Office name displayed
+    - Geofence radius shown
+    - Message: "You are inside the office geofence"
+
+[ ] Status message correct
+    - Green success banner
+    - Message: "✅ You are inside..."
+    - Delta shows: "✅ Inside 100m zone"
+
+[ ] Check-In button enabled
+    - Button type: Primary (bright blue)
+    - Text: "✅ Check-In"
+    - Click works (no disabled state)
+
+
+TEST 3B: OUTSIDE OFFICE GEOFENCE
+----------------------------------
+
+[ ] Device location > 100m from office
+    - Distance to Office shown: ________ m (>100)
+    - Map shows device pin outside blue circle
+    - Distance line shows "❌ Outside"
+
+[ ] Banner styling correct
+    - Color: Red (error state)
+    - Message: "You are 150.2 meters away from office"
+    - Delta shows: "❌ Outside 100m zone" (red color)
+
+[ ] Status message correct
+    - Error banner appears
+    - Message: "❌ You are X.X meters away..."
+    - "Move within 100m to check in" shown
+
+[ ] Check-In button behavior
+    - Button still clickable (not disabled)
+    - Click shows warning: "Check-in flagged for HR review"
+    - Location status: "Outside Office"
+
+[ ] Verification event logged
+    - Reason recorded: "Outside Office (X.Xm away)"
+    - is_present flag set to: false
+
+
+TEST 3C: DESKTOP SIMULATION MODE
+----------------------------------
+
+[ ] Checkbox visible
+    - "Simulate being inside Office (for testing on Desktop)"
+
+[ ] When checked
+    - User coordinates become: [office_lat, office_lng]
+    - Distance shows: 0.0 m
+    - Banner: Green success
+    - Check-In button: Enabled
+
+[ ] When unchecked
+    - Reverts to real ISP location
+    - Distance updates accordingly
+    - Banner color changes back
+
+
+================================================================================
+SECTION 4: CHECK-IN WITH FACE VERIFICATION
+================================================================================
+
+[ ] Check-In button clicked
+    - Loading state shows
+    - Message: "Verifying..." or spinner appears
+
+[ ] Face capture triggered
+    - Camera preview opens
+    - Instructions: "Position your face in the center"
+    - Image capture works
+
+[ ] Image sent to API
+    - Network request logged (DevTools Network tab)
+    - Endpoint: POST /api/v1/attendance/check-in
+    - Payload includes: employee_id, latitude, longitude, timestamp, file
+
+[ ] Face recognition in progress
+    - Takes 3-10 seconds typical
+    - No timeout or crash
+    - Backend log shows processing
+
+[ ] Face verification result
+    Decision: [ ] Accepted [ ] Review [ ] Rejected
+    Confidence Score: ________%
+
+
+TEST 4A: SUCCESSFUL FACE VERIFICATION (Accepted)
+---------------------------------------------------
+
+[ ] Face match confidence > 0.7
+    Actual confidence: ________%
+
+[ ] Decision: ACCEPTED
+
+[ ] Success screen shown
+    - Title: "Check In Successful" or "✅ Checked in successfully!"
+    - Time displayed: "Checked in at HH:MM AM/PM"
+    - Employee name shown
+    - Project/Subject name shown
+    - Location: "Inside Office"
+    - Confidence: "92%" or similar
+
+[ ] Success message
+    - Toast notification: "Checked in successfully!"
+    - Green checkmark icon
+    - Disappears after 3-5 seconds
+
+[ ] Page state updated
+    - Button changed to: "🚪 Check-Out"
+    - Info banner: "Checked in at [TIME]. Ready to check out?"
+
+[ ] Verification event created
+    - Table: verification_events
+    - success: true
+    - confidence_score: ________
+    - reason: "photo: data:image/jpeg;base64,..."
+
+
+TEST 4B: BORDERLINE FACE MATCH (Review)
+------------------------------------------
+
+[ ] Face match confidence 0.6-0.7
+    Actual confidence: ________%
+
+[ ] Decision: REVIEW
+
+[ ] Warning message shown
+    - Message: "Identity match was borderline..."
+    - "...flagged for HR review"
+    - Yellow/orange warning icon
+
+[ ] Check-in still allowed
+    - Continue button available
+    - Proceed to success screen
+
+[ ] Verification event logged
+    - success: false (or true with flag?)
+    - Reason: "Borderline face match"
+
+
+TEST 4C: FAILED FACE VERIFICATION (Rejected)
+----------------------------------------------
+
+[ ] Face match confidence < 0.6
+    Actual confidence: ________%
+
+[ ] Decision: REJECTED
+
+[ ] Error message shown
+    - Message: "Face match score too low"
+    - "Login blocked"
+    - Red error icon
+
+[ ] Check-in BLOCKED
+    - No success screen
+    - No record created in attendance_logs
+
+[ ] Verification event logged
+    - success: false
+    - confidence_score: ________
+    - Reason: "Low similarity score"
+
+[ ] User can retry
+    - Button remains clickable
+    - Can capture another image
+
+
+================================================================================
+SECTION 5: SUPABASE ATTENDANCE_LOGS VERIFICATION
+================================================================================
+
+[ ] Record created in Supabase
+    Timestamp: Open https://app.supabase.com
+    Table: attendance_logs
+
+[ ] Record contains all required fields
+    [ ] id: ________________________ (UUID)
+    [ ] employee_id: ________________________ (UUID)
+    [ ] subject_id: ________________________ (UUID)
+    [ ] timestamp: ________________________ (ISO8601)
+    [ ] latitude: ________________________ (float)
+    [ ] longitude: ________________________ (float)
+    [ ] location_status: ________________________ (string)
+    [ ] is_present: ________________________ (boolean)
+    [ ] face_confidence: ________________________ (float, 0.0-1.0)
+    [ ] checkout_time: NULL (empty for active check-in)
+
+[ ] Timestamp format correct
+    Format: YYYY-MM-DDTHH:MM:SSZ
+    Example: 2026-06-23T15:30:00Z
+    [ ] In UTC timezone
+
+[ ] Coordinates accurate
+    [ ] Latitude: 17.3850 (test office example)
+    [ ] Longitude: 78.4867 (test office example)
+    [ ] Within 50m of actual location
+
+[ ] Status fields set correctly
+    [ ] location_status: "Inside Office" or "Outside Office"
+    [ ] is_present: true (if inside AND face verified)
+    [ ] is_present: false (if outside OR face failed)
+
+[ ] No duplicate records
+    - Multiple rapid clicks don't create duplicates
+    - Only one record per check-in
+
+
+================================================================================
+SECTION 6: CHECK-OUT & TIMER FUNCTIONALITY
+================================================================================
+
+[ ] Active check-in detected
+    - Info banner: "Checked in at 09:30 AM. Ready to check out?"
+    - Check-Out button visible: "🚪 Check-Out"
+    - Check-In button hidden or disabled
+
+[ ] Duration display
+    - Shows check-in time: ____:____ AM/PM
+    - Ready to capture checkout timestamp
+
+[ ] Check-Out button clicked
+    - Takes face image again (if required)
+    - Timestamp recorded: HH:MM:MM
+
+[ ] Checkout recorded in Supabase
+    - Same attendance_logs record updated
+    - checkout_time populated: ________________________
+    - Duration calculable: check_out - check_in
+
+[ ] Success message shown
+    - Message: "✅ Checked out successfully!"
+    - Toast notification displayed
+
+[ ] UI reverts to initial state
+    - Button changes back to: "✅ Check-In"
+    - Info banner disappears
+    - Info shows: "📡 Get Your Device Location"
+
+[ ] Attendance history updated
+    - New record visible in "📅 Attendance History" tab
+    - Shows: Date, Check-In Time, Check-Out Time, Duration
+    - Format: "Date: 2026-06-23, Check-In: 09:30 AM, Check-Out: 05:45 PM"
+
+
+================================================================================
+SECTION 7: EDGE CASES & ERROR HANDLING
+================================================================================
+
+EDGE CASE 7A: MULTIPLE CHECK-INS SAME DAY
+--------------------------------------------
+
+[ ] First check-in successful
+    - Button: "🚪 Check-Out"
+
+[ ] Second check-in attempt (before checkout)
+    - Active log detected
+    - Button disabled or shows warning
+    - Cannot create duplicate
+
+[ ] Check-out performed
+    - checkout_time populated
+    - active_log becomes inactive
+
+[ ] Third check-in same day
+    - Check-In button enabled again
+    - New record created (different timestamp)
+    - Allowed: Employee can check-in/out multiple times
+
+
+EDGE CASE 7B: RAPID BUTTON CLICKS
+------------------------------------
+
+[ ] Check-In button clicked multiple times rapidly
+    - Only one API request sent
+    - Debounce/disable working
+    - Only one attendance record created
+
+[ ] Check-Out button clicked multiple times
+    - Only one checkout_time recorded
+    - No duplicate checkout records
+
+
+EDGE CASE 7C: NETWORK TIMEOUT
+------------------------------
+
+[ ] Network request hangs > 30 seconds
+    [ ] Timeout error shown: "Request timed out"
+    [ ] Can retry
+    [ ] No partial record created
+
+[ ] Intermittent connectivity
+    [ ] 3 retry attempts made
+    [ ] Exponential backoff applied (500ms, 1s, 2s)
+    [ ] Eventually succeeds or shows final error
+
+
+EDGE CASE 7D: OFFLINE MODE
+----------------------------
+
+[ ] Device loses internet during check-in
+    [ ] Error message: "No internet connection"
+    [ ] Record NOT created in Supabase
+    [ ] Can retry when online
+
+Note: Currently no offline queue implemented.
+Recommendation: Add local SQLite backup + sync-on-reconnect
+
+
+EDGE CASE 7E: TIMEZONE HANDLING
+---------------------------------
+
+[ ] Device timezone: ________________________
+[ ] Server timezone: UTC
+[ ] Timestamp stored in Supabase: __________ (should be UTC)
+[ ] Display in UI matches local time: __________ AM/PM
+[ ] Daylight savings transition: [ ] Not tested [ ] Works [ ] Fails
+
+
+EDGE CASE 7F: NO FACE DETECTED
+--------------------------------
+
+[ ] Blurry or dark image captured
+    [ ] Error: "Face not found!"
+    [ ] Can retake image
+
+[ ] Multiple faces in image
+    [ ] Warning: "Multiple faces found"
+    [ ] Can retake with single face
+
+[ ] No face at all
+    [ ] Error: "Face not recognized"
+    [ ] Prompt to try again or register
+
+
+================================================================================
+SECTION 8: INTEGRATION VERIFICATION
+================================================================================
+
+GEOFENCE API INTEGRATION
+------------------------
+
+[ ] Frontend coordinates sent to API
+    Check FastAPI logs: http://10.79.79.4:8000/docs
+    Request body logged with latitude/longitude
+
+[ ] Backend calculates distance
+    Distance = Haversine(user_lat, user_lng, office_lat, office_lng)
+    Matches frontend calculation within 1 meter
+
+[ ] Geofence validation before face capture
+    Step order: 1) Distance check 2) Face capture (if inside)
+
+[ ] Geofence error doesn't block check-in
+    Can still check in outside with warning
+    is_present=false recorded for HR review
+
+
+FACE RECOGNITION API INTEGRATION
+---------------------------------
+
+[ ] Image uploaded as multipart/form-data
+    Content-Type: multipart/form-data
+    Field name: 'file'
+    File size: < 500 KB typical
+
+[ ] Face embeddings calculated on backend
+    Model: dlib + face_recognition
+    Embedding size: 128-dimensional vector
+
+[ ] Embedding comparison works
+    Distance metric: Cosine similarity
+    Threshold: 0.7 for acceptance
+
+[ ] Confidence score returned
+    Value: 0.0 to 1.0
+    Corresponds to face match quality
+
+[ ] Decision logic applied
+    Accepted: > 0.7
+    Review: 0.6 - 0.7
+    Rejected: < 0.6
+
+
+SUPABASE INTEGRATION
+--------------------
+
+[ ] Authentication works
+    Credentials in supabase_config.dart
+    Connect successful: No auth errors
+
+[ ] Tables created and accessible
+    [ ] employees
+    [ ] companies
+    [ ] attendance_logs
+    [ ] verification_events
+    [ ] offices
+
+[ ] INSERT operations working
+    New attendance_logs record created successfully
+    All fields populated
+
+[ ] UPDATE operations working
+    checkout_time updated on check-out
+    is_present flag updated
+
+[ ] SELECT/READ operations working
+    Attendance history retrieved
+    Query: attendance_logs WHERE employee_id = X
+
+[ ] Realtime subscriptions (Flutter)
+    [ ] Not yet implemented (TODO)
+    [ ] Manual refresh works with st.rerun()
+
+[ ] Timezone handling
+    [ ] Dates stored in UTC
+    [ ] No timezone offset issues
+
+
+FLUTTER APP INTEGRATION
+------------------------
+
+[ ] Supabase initialization
+    SupabaseService.initialize() succeeds
+    No configuration errors
+
+[ ] Geolocation service
+    GeolocationService.getCurrentPosition() returns valid coordinates
+    Accuracy: LocationAccuracy.best
+    Timeout: 30 seconds (no hangs)
+
+[ ] API service
+    ApiService.checkIn() sends correct payload
+    Receives response with 200/201 status
+    JSON parsing works
+
+[ ] Face service
+    Camera integration working
+    Image capture returns List<int> bytes
+    JPEG encoding correct
+
+[ ] Navigation flow
+    Login → Home → Check-In → Success → Check-Out
+    Back navigation works
+    State persists correctly
+
+
+STREAMLIT APP INTEGRATION
+--------------------------
+
+[ ] Supabase connection
+    supabase.table('attendance_logs').select() works
+    Records retrieved successfully
+
+[ ] Camera input
+    st.camera_input() widget functional
+    Image captured and processed
+
+[ ] Folium map display
+    Map renders with office and user markers
+    Geofence circle drawn at correct radius
+    Distance line connects user to office
+
+[ ] Streamlit session state
+    Employee data persists across reruns
+    Logged-in status maintained
+
+[ ] Button state management
+    Check-In/Out button state tracked
+    Active log prevents duplicate buttons
+
+
+================================================================================
+SECTION 9: PERFORMANCE & LOAD TESTING
+================================================================================
+
+[ ] Face recognition response time
+    Target: < 10 seconds
+    Actual: ________ seconds
+
+[ ] API latency
+    Check-in request: ________ ms
+    Acceptable: < 5000 ms (5 seconds)
+
+[ ] Supabase query performance
+    attendance_logs retrieval: ________ ms
+    Acceptable: < 1000 ms
+
+[ ] Image upload speed
+    File size: ________ KB
+    Upload time: ________ seconds
+    Acceptable: < 30 seconds
+
+
+================================================================================
+SECTION 10: FINAL ASSESSMENT
+================================================================================
+
+OVERALL TEST RESULT
+
+[ ] PASS - All tests passed, app ready for production
+[ ] PASS WITH WARNINGS - Works but has minor issues (list below)
+[ ] FAIL - Critical issues found, needs fixes (list below)
+[ ] INCOMPLETE - Could not test (reason: _______________)
+
+
+MAJOR ISSUES FOUND (if FAIL or WARNINGS)
+-----------------------------------------
+
+Issue 1: __________________________________________________________________
+Severity: [ ] Critical [ ] High [ ] Medium [ ] Low
+Reproduction: _____________________________________________________________
+Expected: _________________________________________________________________
+Actual: ___________________________________________________________________
+Workaround: _______________________________________________________________
+
+
+Issue 2: __________________________________________________________________
+Severity: [ ] Critical [ ] High [ ] Medium [ ] Low
+Reproduction: _____________________________________________________________
+Expected: _________________________________________________________________
+Actual: ___________________________________________________________________
+Workaround: _______________________________________________________________
+
+
+RECOMMENDATIONS
+----------------
+
+[ ] Implement offline queue for failed check-ins
+[ ] Pre-load face recognition model at app startup
+[ ] Add realtime subscriptions for Flutter
+[ ] Implement geofence boundary crossing notifications
+[ ] Add voice recognition as secondary verification method
+[ ] Implement GPS spoofing detection
+[ ] Add admin override for outside-geofence check-ins
+[ ] Create detailed attendance analytics dashboard
+
+
+SIGN-OFF
+--------
+
+Tester Name: ________________________
+Signature: ________________________
+Date: ________________________
+Environment: [ ] Dev [ ] Staging [ ] Prod
+Device: ________________________ (iOS/Android/Desktop)
+OS Version: ________________________
+
+
+================================================================================
+END OF CHECKLIST
+================================================================================

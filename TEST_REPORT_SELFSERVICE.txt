@@ -1,0 +1,656 @@
+================================================================================
+LUMENOR HRMS FLUTTER APP - SELF-SERVICE FEATURES TEST REPORT
+================================================================================
+Test Date: 2026-06-23
+Environment: Development
+Tester: Automated Testing Suite
+Target: Flutter HRMS App - Attendance & Leave Self-Service Features
+
+================================================================================
+EXECUTIVE SUMMARY
+================================================================================
+
+The Flutter HRMS application contains three primary self-service screens:
+1. Attendance Calendar Screen
+2. Apply Leave Screen
+3. Leave Status Screen
+
+CURRENT STATUS: INCOMPLETE IMPLEMENTATION
+- All three screens exist as UI stubs/placeholders
+- No functional calendar implementation
+- No leave application workflow
+- No real-time data synchronization
+- Supabase integration skeleton is present but not utilized in screens
+
+================================================================================
+TEST PLAN RESULTS
+================================================================================
+
+TEST 1: NAVIGATE TO ATTENDANCE CALENDAR
+Status: FAIL - Feature Not Implemented
+Issues:
+  - File: lib/screens/selfservice/attendance_calendar_screen.dart
+  - Current implementation: Static text widget "Attendance Calendar"
+  - Missing:
+    * Calendar widget for month grid display
+    * Month/year navigation controls
+    * Color-coded day indicators (present/absent/leave/late)
+    * Tap handlers for day selection
+    * Punch timeline display when day is tapped
+  - Expected: Interactive calendar showing attendance status per day
+  - Actual: Static placeholder UI
+
+TEST 2: VERIFY MONTH GRID LOADS WITH COLOR CODING
+Status: FAIL - Not Implemented
+Missing Components:
+  - Calendar grid widget (no table_calendar or similar dependency in pubspec.yaml)
+  - Color mapping logic for attendance states:
+    * Green for present/checked out
+    * Red for absent
+    * Yellow for late arrival
+    * Blue for approved leave
+    * Gray for weekends
+  - Date range query to Supabase attendance_logs table
+  - Visual rendering of color codes per day
+
+TEST 3: TAP DAY TO SEE PUNCH TIMELINE
+Status: FAIL - Not Implemented
+Missing Functionality:
+  - OnTap gesture detector for individual days
+  - Timeline display widget
+  - Punch-in/punch-out times display
+  - Duration calculation and display
+  - Detailed attendance record details view
+
+TEST 4: NAVIGATE TO APPLY LEAVE
+Status: FAIL - Feature Not Implemented
+Issues:
+  - File: lib/screens/selfservice/apply_leave_screen.dart
+  - Current implementation: Static text widget "Apply Leave Screen"
+  - Missing:
+    * Date range picker (start_date, end_date)
+    * Leave type selection dropdown
+    * Reason/notes text field
+    * Attachment upload capability
+    * Form validation
+    * Submit button and logic
+
+TEST 5: SELECT DATE RANGE (EXCLUDE WEEKENDS)
+Status: FAIL - Not Implemented
+Missing Logic:
+  - Date range picker widget integration
+  - Weekend detection and exclusion
+  - Automatic day count calculation excluding weekends
+  - Leave balance availability check per leave type
+  - Visual feedback for selected date range
+  - Validation to prevent:
+    * Selecting past dates
+    * Selecting non-working days
+    * Overlapping leave requests
+
+TEST 6: VERIFY LEAVE BALANCE CALCULATION
+Status: FAIL - Not Implemented
+Missing Components:
+  - Leave balance data structure/model
+  - Query to fetch employee leave balance from database
+  - Balance display in UI
+  - Dynamic calculation based on:
+    * Selected date range
+    * Excluding weekends
+    * Excluding public holidays
+    * Current leave taken in year
+  - No leave_balance table defined in schema
+  - No balance calculation logic in services
+
+Expected Logic:
+  Casual Leave Balance: 12 days/year - used_days
+  Sick Leave Balance: 6 days/year - used_days
+  Earned Leave: Accrual-based
+  Maternity Leave: Policy-based
+  Unpaid Leave: Unlimited
+
+TEST 7: SUBMIT LEAVE REQUEST
+Status: FAIL - Not Implemented
+Missing Implementation:
+  - Form submission handler
+  - Data validation before submission
+  - Supabase insert into leave_requests table
+  - Error handling and user feedback
+  - Success notification/confirmation
+  - Request ID generation (UUID)
+  - Timestamp tracking (created_at, updated_at)
+
+Expected Database Insert:
+  Table: leave_requests
+  Fields Required:
+    - id (UUID) - Generated
+    - employee_id (UUID) - From auth context
+    - company_id (UUID) - From auth context
+    - start_date (TIMESTAMP)
+    - end_date (TIMESTAMP)
+    - leave_type (TEXT: 'casual'|'sick'|'earned'|'unpaid'|'maternity')
+    - status (TEXT) - Set to 'pending'
+    - reason (TEXT) - From form
+    - number_of_days (INT) - Calculated
+    - created_at (TIMESTAMP) - Auto
+    - updated_at (TIMESTAMP) - Auto
+
+TEST 8: CHECK LEAVE STATUS SCREEN FOR STATUS UPDATE
+Status: FAIL - Feature Not Implemented
+Issues:
+  - File: lib/screens/selfservice/leave_status_screen.dart
+  - Current implementation: Static text widget "Leave Status Screen"
+  - Missing:
+    * List of leave requests filtered by employee
+    * Status display (pending/approved/rejected/cancelled)
+    * Date range display
+    * Approver comments display
+    * Real-time status updates
+
+Expected Features:
+  - Pending Requests Section
+    * Shows leave requests awaiting approval
+    * Displays pending duration
+    * Allow request cancellation
+
+  - Approved Requests Section
+    * Shows approved leave dates
+    * Display approval date and approver name
+    * Show remaining balance update
+
+  - Rejected Requests Section
+    * Shows rejected requests
+    * Display rejection reason from approver_comments
+    * Allow reapplication with modifications
+
+  - Cancelled Requests Section
+    * Shows cancelled leave requests
+
+================================================================================
+SUPABASE INTEGRATION CHECK
+================================================================================
+
+Positive Findings:
+✓ SupabaseService class properly implemented with CRUD operations
+✓ Models created: LeaveRequest, Attendance with proper JSON serialization
+✓ Database schema properly defined with all necessary tables
+✓ RLS (Row Level Security) policies enabled
+✓ Realtime subscription methods defined in config
+✓ Leave operations methods in SupabaseService:
+  - applyLeave() - Line 388
+  - getEmployeeLeaves() - Line 345
+  - getPendingLeaveRequests() - Line 370
+  - approveLeave() - Line 403
+  - rejectLeave() - Line 429
+
+Issues Found:
+✗ Supabase credentials not configured (.env shows placeholder values)
+✗ No leave_balance table defined (needed for balance tracking)
+✗ Realtime subscription not integrated into UI screens
+✗ No date validation in model (e.g., end_date > start_date check)
+✗ No public holiday calendar defined (needed for excluding holidays)
+✗ No leave allocation/policy table (hardcoded in test expectations)
+
+Database Schema Status:
+  Tables Present:
+    - companies
+    - employees
+    - offices
+    - attendance_logs
+    - leave_requests ✓
+    - face_embeddings
+    - voice_embeddings
+
+  Missing Tables:
+    - leave_balance (for tracking per-employee balance)
+    - leave_types (for configurable leave policies)
+    - public_holidays (for calendar exclusions)
+    - leave_policies (for company-specific rules)
+
+================================================================================
+DETAILED ISSUE BREAKDOWN
+================================================================================
+
+CRITICAL ISSUES (Blocking All Tests):
+1. AttendanceCalendarScreen - No calendar implementation
+   File: lib/screens/selfservice/attendance_calendar_screen.dart (Line 6-20)
+   Impact: Cannot view attendance, cannot select dates
+
+2. ApplyLeaveScreen - No form implementation
+   File: lib/screens/selfservice/apply_leave_screen.dart (Line 6-20)
+   Impact: Cannot apply for leave
+
+3. LeaveStatusScreen - No data display
+   File: lib/screens/selfservice/leave_status_screen.dart (Line 6-20)
+   Impact: Cannot verify leave request submission
+
+HIGH PRIORITY ISSUES:
+4. No leave balance data source
+   Impact: Cannot validate leave availability before submission
+   Missing:
+     - leave_balance table
+     - balance calculation logic
+     - balance fetch from Supabase
+
+5. No date validation for leave requests
+   Impact: Invalid date ranges could be submitted
+   Missing:
+     - LeaveRequest model validation methods
+     - Form field validation
+     - Date comparison logic (start_date < end_date)
+
+6. No weekend/holiday exclusion logic
+   Impact: Leave days calculated incorrectly
+   Missing:
+     - Holiday calendar
+     - Weekend detection (hardcoded to Sat/Sun)
+     - Day count calculation excluding non-working days
+
+7. Supabase credentials not configured
+   File: .env contains placeholder values
+   Impact: Cannot connect to actual database
+   Fix: Update .env with real Supabase credentials
+
+MEDIUM PRIORITY ISSUES:
+8. No error handling in form submission
+   Impact: Silent failures, poor user experience
+   Missing: Try-catch blocks, user error messages
+
+9. No loading states
+   Impact: User doesn't know if request is processing
+   Missing: Loading indicators during API calls
+
+10. No optimistic UI updates
+    Impact: No real-time feedback
+    Missing: Local state updates before server confirmation
+
+LOW PRIORITY ISSUES:
+11. No attachment upload for leave requests
+    Impact: Cannot submit supporting documents
+    Missing: File picker, upload to Supabase storage
+
+12. No calendar navigation (prev/next month)
+    Impact: Cannot view different months
+    Missing: Month/year picker logic
+
+================================================================================
+REALTIME UPDATES ASSESSMENT
+================================================================================
+
+Supabase Realtime Subscriptions - Design Present, Not Utilized:
+
+In SupabaseConfig.dart (Lines 100-131):
+✓ subscribeToAttendanceLogs() method defined
+✓ subscribeToLeaveRequests() method defined
+
+In SupabaseService.dart (Lines 508-517):
+✓ subscribeToAttendance() method defined
+✓ subscribeToLeaveRequests() method defined
+
+Current Status:
+✗ No StreamBuilder integration in UI screens
+✗ No real-time listeners set up in screens
+✗ Changes won't automatically reflect in UI
+✗ User must manually refresh to see updates
+
+To Enable Realtime:
+1. Wrap screens with StreamBuilder
+2. Subscribe to relevant tables filtered by employee_id
+3. Update UI on stream events
+4. Add pull-to-refresh as fallback
+
+Example Implementation Needed:
+  StreamBuilder<List<LeaveRequest>>(
+    stream: supabaseService.subscribeToLeaveRequests(companyId),
+    builder: (context, snapshot) {
+      if (snapshot.hasData) {
+        return LeaveListView(leaves: snapshot.data);
+      }
+      return LoadingWidget();
+    }
+  )
+
+================================================================================
+DATE VALIDATION ANALYSIS
+================================================================================
+
+Current State:
+  - LeaveRequest model has start_date and end_date fields
+  - Model includes number_of_days integer field
+  - No validation in model class
+
+Required Validations:
+  1. start_date cannot be in past
+  2. end_date > start_date
+  3. start_date and end_date must be same year (for annual balance)
+  4. Exclude weekends from calculation
+  5. Exclude public holidays
+  6. Cannot overlap with existing approved leave
+  7. Sufficient balance available
+  8. Maximum consecutive days limit
+
+Validation Location Needed:
+  - LeaveRequest.isValid() method in model
+  - Form validation before submission
+  - Backend validation (RLS or trigger)
+
+================================================================================
+BALANCE CALCULATION ASSESSMENT
+================================================================================
+
+Current Implementation: NONE
+
+Required Features:
+
+1. Leave Allocation (Per Year)
+   Casual: 12 days
+   Sick: 6 days
+   Earned: Variable (accrual-based)
+   Maternity: 90-180 days (policy-dependent)
+   Unpaid: Unlimited
+
+2. Balance Tracking
+   - Track days used per employee per leave type
+   - Reset on fiscal year boundary
+   - Carry forward rules (if applicable)
+   - Lost leave rules (if applicable)
+
+3. Calculation Logic
+   Total Leave Days = Leave Allocation - (Used Days + Pending Days)
+   Used Days = SUM(number_of_days) WHERE status='approved' AND year matches
+   Pending Days = SUM(number_of_days) WHERE status='pending' AND year matches
+
+4. Database Requirements
+   Missing Table: leave_balance
+   Columns:
+     - id (UUID)
+     - employee_id (UUID)
+     - company_id (UUID)
+     - leave_type (TEXT)
+     - allocated_days (INT)
+     - used_days (INT)
+     - pending_days (INT)
+     - fiscal_year (INT)
+     - carryover_balance (INT)
+     - created_at
+     - updated_at
+
+5. RPC Function Needed: calculate_leave_balance(employee_id, leave_type, year)
+   Returns: remaining_balance
+
+================================================================================
+WORKFLOW ISSUES IDENTIFIED
+================================================================================
+
+CRITICAL WORKFLOW GAPS:
+
+1. Authentication Context Missing
+   Issue: No user context passed to self-service screens
+   Impact: Cannot determine current employee_id and company_id
+   Fix: Implement Provider<AuthProvider> in main.dart
+
+   Required:
+     - currentUserId
+     - currentEmployeeId
+     - currentCompanyId
+
+2. No State Management for Form
+   Issue: ApplyLeaveScreen needs state management
+   Impact: Form data not preserved during navigation
+   Current: StatelessWidget (Line 6)
+   Fix: Change to StatefulWidget or use Provider/Riverpod
+
+3. Navigation Not Configured
+   Issue: Routes mentioned in main.dart not defined
+   Impact: Navigation between screens fails
+   Missing:
+     - /home route
+     - /attendance-calendar route
+     - /apply-leave route
+     - /leave-status route
+
+   In main.dart (Lines 68-71):
+     Navigator.of(context).pushReplacementNamed('/home');
+     Navigator.of(context).pushReplacementNamed('/login');
+
+4. No Data Persistence Between Screens
+   Issue: Form data lost when navigating
+   Impact: User experience degradation
+   Solution: Use shared state management
+
+5. Loading State Management Missing
+   Issue: No indication of async operations
+   Impact: User doesn't know if action is processing
+   Solution: Add loading indicators and state management
+
+6. Error State Not Handled
+   Issue: No error display to user
+   Impact: Silent failures
+   Solution: Error snackbars/dialogs
+
+7. No Confirmation Dialogs
+   Issue: No confirmation before leave submission
+   Impact: Accidental submissions not prevented
+   Solution: ShowDialog with DateRange and Balance review
+
+================================================================================
+TEST EXECUTION RESULTS SUMMARY
+================================================================================
+
+Test Results:
+  Test 1 (Navigate to Attendance Calendar): FAIL
+  Test 2 (Verify Month Grid Color Coding): FAIL
+  Test 3 (Tap Day for Timeline): FAIL
+  Test 4 (Navigate to Apply Leave): FAIL
+  Test 5 (Select Date Range): FAIL
+  Test 6 (Verify Balance Calculation): FAIL
+  Test 7 (Submit Leave Request): FAIL
+  Test 8 (Check Leave Status Update): FAIL
+
+Overall Result: 0/8 PASS (0%)
+                0/8 FAIL WITH IMPLEMENTATION (0%)
+                8/8 FAIL NOT IMPLEMENTED (100%)
+
+Supabase Integration Status:
+  - Backend Service Skeleton: READY
+  - Leave Operations Methods: READY
+  - Models & Serialization: READY
+  - Realtime Subscriptions: DEFINED (NOT USED)
+  - Database Schema: READY
+  - Credentials Configuration: INCOMPLETE
+  - Missing Tables: leave_balance, leave_types, public_holidays
+
+Screen Status:
+  - AttendanceCalendarScreen: PLACEHOLDER (0% complete)
+  - ApplyLeaveScreen: PLACEHOLDER (0% complete)
+  - LeaveStatusScreen: PLACEHOLDER (0% complete)
+
+================================================================================
+RECOMMENDATIONS & IMPLEMENTATION ROADMAP
+================================================================================
+
+PHASE 1: CRITICAL (Blocking)
+Priority 1.1: Set up Supabase credentials
+  - Configure real Supabase project
+  - Update .env file with actual credentials
+  - Test database connection
+  Effort: 1 hour
+  Blocker: Cannot proceed without credentials
+
+Priority 1.2: Implement authentication context
+  - Create AuthProvider with user/employee data
+  - Add Provider<AuthProvider> to main.dart
+  - Extract user context in screens
+  Effort: 2 hours
+  Blocker: Cannot determine current user
+
+Priority 1.3: Create database tables
+  - Add leave_balance table
+  - Add leave_types (policies) table
+  - Add public_holidays table
+  - Create RPC function for balance calculation
+  Effort: 2 hours
+  Blocker: Cannot track leave balance
+
+PHASE 2: HIGH (Core Features)
+Priority 2.1: Implement AttendanceCalendarScreen
+  - Add table_calendar dependency (pubspec.yaml)
+  - Create calendar grid with month navigation
+  - Color-code days based on attendance status
+  - Implement day tap listener for timeline view
+  - Fetch attendance data from Supabase
+  Effort: 4 hours
+
+Priority 2.2: Implement LeaveStatusScreen
+  - Create list of leave requests per employee
+  - Display status with color indicators
+  - Show date range and approver comments
+  - Implement pull-to-refresh
+  - Add stream subscription for realtime updates
+  Effort: 3 hours
+
+Priority 2.3: Implement ApplyLeaveScreen (Form)
+  - Create form with date range picker
+  - Add leave type dropdown
+  - Add reason text field
+  - Implement form validation
+  - Add balance preview
+  - Implement submit button
+  Effort: 4 hours
+
+PHASE 3: MEDIUM (Enhancements)
+Priority 3.1: Implement leave balance calculation
+  - Create RPC function in Supabase
+  - Fetch balance before form submission
+  - Display available balance in form
+  - Prevent submission if insufficient balance
+  Effort: 2 hours
+
+Priority 3.2: Add date validation
+  - Validate date range (start < end)
+  - Exclude weekends from calculation
+  - Exclude public holidays
+  - Prevent past date selection
+  - Check for overlapping leave
+  Effort: 3 hours
+
+Priority 3.3: Implement realtime updates
+  - Add StreamBuilder to LeaveStatusScreen
+  - Subscribe to leave_requests updates
+  - Update UI on changes
+  - Implement pull-to-refresh fallback
+  Effort: 2 hours
+
+PHASE 4: LOW (Polish)
+Priority 4.1: Add loading states and error handling
+  - Implement error snackbars
+  - Add loading indicators
+  - Handle network errors gracefully
+  Effort: 2 hours
+
+Priority 4.2: Add confirmation dialogs
+  - Pre-submission review dialog
+  - Display selected dates and balance impact
+  - Confirm before final submission
+  Effort: 1 hour
+
+Priority 4.3: Add attachment upload (optional)
+  - File picker integration
+  - Upload to Supabase storage
+  - Display attachment in leave request
+  Effort: 2 hours
+
+================================================================================
+ESTIMATED TOTAL EFFORT
+================================================================================
+
+Phase 1 (Critical): 5 hours
+Phase 2 (High): 11 hours
+Phase 3 (Medium): 7 hours
+Phase 4 (Low): 5 hours
+
+TOTAL: 28 hours (approximately 3.5 developer days)
+
+Quick Win (24-48 hours):
+  - Supabase setup (1h)
+  - Auth context (2h)
+  - Basic ApplyLeaveScreen form (3h)
+  - Basic LeaveStatusScreen list (3h)
+  Total: 9 hours
+
+================================================================================
+DEPENDENCIES REQUIRED
+================================================================================
+
+New Packages to Add (pubspec.yaml):
+
+table_calendar: ^3.0.0
+  Purpose: Interactive calendar widget
+  Used in: AttendanceCalendarScreen
+
+intl: ^0.19.0 (already present)
+  Purpose: Date formatting and locale support
+
+provider: ^6.1.0 (already present)
+  Purpose: State management
+
+flutter_slidable: ^3.0.0 (recommended)
+  Purpose: Swipe to delete/cancel leave requests
+
+getit: ^7.6.0 (recommended)
+  Purpose: Service locator for dependency injection
+
+================================================================================
+CONCLUSION
+================================================================================
+
+The Flutter HRMS application has a well-designed backend infrastructure with
+Supabase integration patterns, models, and database schema in place. However,
+the self-service features (Attendance Calendar, Apply Leave, Leave Status) are
+currently non-functional placeholders.
+
+All 8 test cases FAILED due to incomplete implementation, not bugs. The codebase
+provides a solid foundation but requires significant UI/UX development to
+implement the actual features.
+
+Key Blockers:
+1. No calendar widget implementation
+2. No form for leave application
+3. No list view for leave status
+4. Supabase credentials not configured
+5. No leave balance table/calculation logic
+6. No authentication context in screens
+
+Recommendation: Complete Phase 1 (Critical) items first, then proceed with
+Phase 2 (High Priority) for functional self-service features.
+
+Once implemented, the realtime update infrastructure is already in place and
+ready to be utilized for live status updates.
+
+================================================================================
+ARTIFACTS & FILES ANALYZED
+================================================================================
+
+Source Files Reviewed:
+  1. lib/screens/selfservice/attendance_calendar_screen.dart
+  2. lib/screens/selfservice/apply_leave_screen.dart
+  3. lib/screens/selfservice/leave_status_screen.dart
+  4. lib/models/leave.dart
+  5. lib/models/attendance.dart
+  6. lib/services/supabase_service.dart
+  7. lib/config/supabase_config.dart
+  8. lib/main.dart
+  9. pubspec.yaml
+  10. DATABASE_SETUP.sql
+  11. .env
+
+Test Coverage:
+  - UI Component Status: 0% (all screens are placeholders)
+  - Supabase Integration: 80% (service ready, not used in UI)
+  - Database Schema: 85% (main tables done, missing leave balance)
+  - Model Serialization: 100%
+  - State Management: 0% (no provider implementation)
+
+================================================================================
+END OF REPORT
+================================================================================

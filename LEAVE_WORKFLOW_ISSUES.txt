@@ -1,0 +1,589 @@
+================================================================================
+LEAVE REQUEST WORKFLOW - CRITICAL ISSUES & SOLUTIONS
+================================================================================
+
+ISSUE #1: SUPABASE LEAVE_REQUESTS INSERT NEVER OCCURS
+================================================================================
+
+Problem:
+  ApplyLeaveScreen has no submit handler. Even if form were complete, the
+  leave request would never be inserted into Supabase.
+
+Current Code:
+  File: lib/screens/selfservice/apply_leave_screen.dart
+  class ApplyLeaveScreen extends StatelessWidget {
+    const ApplyLeaveScreen({super.key});
+
+    @override
+    Widget build(BuildContext context) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const HeadingMediumText('Apply Leave'),
+        ),
+        body: const Center(
+          child: HeadingMediumText('Apply Leave Screen'),
+        ),
+      );
+    }
+  }
+
+What Needs to Happen:
+  1. Form collects: start_date, end_date, leave_type, reason
+  2. Data validated (dates valid, balance sufficient, etc.)
+  3. SupabaseService.applyLeave() called with LeaveRequest object
+  4. Wait for response with generated ID
+  5. Show confirmation with leave request ID
+  6. Navigate to LeaveStatusScreen to show new request as "pending"
+
+Expected Database Insert:
+  INSERT INTO leave_requests (
+    id,
+    employee_id,
+    company_id,
+    start_date,
+    end_date,
+    leave_type,
+    status,
+    reason,
+    number_of_days,
+    created_at,
+    updated_at
+  ) VALUES (
+    gen_random_uuid(),
+    'emp-uuid-here',
+    'company-uuid-here',
+    '2026-07-01T00:00:00Z',
+    '2026-07-03T00:00:00Z',
+    'casual',
+    'pending',
+    'Personal work',
+    2,
+    now(),
+    now()
+  )
+  RETURNING *;
+
+Supabase Service Call (Ready to Use):
+  SupabaseService().applyLeave(LeaveRequest(
+    id: const Uuid().v4(),
+    employeeId: currentUserId,
+    companyId: currentCompanyId,
+    startDate: selectedStartDate,
+    endDate: selectedEndDate,
+    leaveType: selectedLeaveType,
+    status: 'pending',
+    reason: reasonController.text,
+    numberOfDays: calculateBusinessDays(startDate, endDate),
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  ))
+
+Fix Approach:
+  1. Change ApplyLeaveScreen to StatefulWidget
+  2. Add form with TextEditingControllers
+  3. Implement submit button with try-catch
+  4. Show error snackbar on failure
+  5. Show success dialog on success
+  6. Navigate to LeaveStatusScreen after success
+
+Estimated Effort: 2-3 hours
+
+================================================================================
+ISSUE #2: REALTIME UPDATES NOT CONNECTED
+================================================================================
+
+Problem:
+  The infrastructure for realtime updates exists in SupabaseConfig and
+  SupabaseService, but no UI screen actually uses the realtime streams.
+
+  When a leave request is submitted, the LeaveStatusScreen won't update
+  unless user manually refreshes.
+
+Current Architecture (Defined but Unused):
+
+  In SupabaseConfig:
+    static Stream<Map<String, dynamic>> subscribeToLeaveRequests(
+      String companyId
+    ) {
+      return client
+          .from(tableLeave)
+          .on(
+            RealtimeListenOptions(
+              event: '*',
+              filter: RealtimeListenOptions.formatFilter({
+                'column': 'company_id',
+                'value': companyId,
+              }),
+            ),
+            (payload) => payload.newRecord as Map<String, dynamic>,
+          )
+          .asStream();
+    }
+
+  In SupabaseService:
+    Stream<LeaveRequest> subscribeToLeaveRequests(String companyId) {
+      return SupabaseConfig.subscribeToLeaveRequests(companyId)
+          .map((data) => LeaveRequest.fromJson(data));
+    }
+
+What's Missing in LeaveStatusScreen:
+  - No StreamBuilder implementation
+  - No subscription to leave updates
+  - No listener for new/updated/deleted leave requests
+  - No automatic UI refresh on changes
+
+How Realtime Should Work:
+  1. User submits leave request in ApplyLeaveScreen
+  2. SupabaseService.applyLeave() inserts into leave_requests table
+  3. Supabase triggers realtime event (INSERT event)
+  4. LeaveStatusScreen StreamBuilder receives update
+  5. List rebuilds with new pending request
+  6. No manual refresh needed
+
+Implementation Example:
+
+  class LeaveStatusScreen extends StatefulWidget {
+    @override
+    State<LeaveStatusScreen> createState() => _LeaveStatusScreenState();
+  }
+
+  class _LeaveStatusScreenState extends State<LeaveStatusScreen> {
+    late Stream<LeaveRequest> leaveStream;
+
+    @override
+    void initState() {
+      super.initState();
+      final supabaseService = SupabaseService();
+      leaveStream = supabaseService.subscribeToLeaveRequests(
+        currentCompanyId
+      );
+    }
+
+    @override
+    Widget build(BuildContext context) {
+      return StreamBuilder<LeaveRequest>(
+        stream: leaveStream,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return ErrorWidget(error: snapshot.error);
+          }
+          if (!snapshot.hasData) {
+            return LoadingWidget();
+          }
+
+          return LeaveRequestList(
+            requests: snapshot.data as List<LeaveRequest>,
+          );
+        },
+      );
+    }
+  }
+
+Issues with Current Approach:
+  1. Realtime filter filters on company_id only
+  2. Should also filter on employee_id to get only current user's leaves
+  3. Stream returns single events, not complete list
+  4. Need to accumulate updates into a list
+
+Fix Approach:
+  1. Modify subscribeToLeaveRequests to support employee_id filter
+  2. Create BehaviorSubject to maintain leave list state
+  3. Implement StreamBuilder in LeaveStatusScreen
+  4. Handle INSERT, UPDATE, DELETE events
+  5. Add pull-to-refresh as fallback
+
+Estimated Effort: 2-3 hours
+
+================================================================================
+ISSUE #3: DATE VALIDATION MISSING
+================================================================================
+
+Problem:
+  No validation to ensure:
+  - Start date is not in the past
+  - End date is after start date
+  - Dates don't overlap with existing approved leave
+  - Sufficient leave balance available
+
+What LeaveRequest Model Currently Does:
+  - Stores start_date and end_date
+  - No validation methods
+  - No constraints in model
+
+What's Missing:
+
+  1. Past Date Validation
+     Problem: User could apply for leave on July 1 when today is July 5
+     Solution: Check start_date >= today
+
+  2. Date Range Validation
+     Problem: User could set end_date before start_date
+     Solution: Check end_date > start_date
+
+  3. Overlap Validation
+     Problem: User could apply for leave July 1-5, then July 3-8
+     Solution: Query existing approved leaves for overlap
+
+  4. Balance Validation
+     Problem: User with 2 days casual leave could apply for 5 days
+     Solution: Check available_balance >= number_of_days
+
+  5. Weekend Exclusion
+     Problem: Leave days calculation includes weekends
+     Solution: Count only Monday-Friday in date range
+
+  6. Holiday Exclusion
+     Problem: Leave days calculation includes public holidays
+     Solution: Query public_holidays table and exclude
+
+Validation Implementation Locations:
+
+  Option A: In Form Widget
+    - Real-time validation as user selects dates
+    - Show available balance as they select
+    - Prevent submission if invalid
+    - Best UX
+
+  Option B: In Model Class
+    - Add validation methods to LeaveRequest
+    - Create LeaveValidator helper class
+    - Centralized validation logic
+
+  Option C: In Database Triggers
+    - Backend validation prevents invalid inserts
+    - Safety net if frontend bypassed
+    - Required for data integrity
+
+  Recommended: Both A + C (Frontend UX + Backend Safety)
+
+Example Frontend Validation:
+
+  void onEndDateSelected(DateTime endDate) {
+    if (endDate.isBefore(startDate)) {
+      showError('End date must be after start date');
+      return;
+    }
+
+    int businessDays = calculateBusinessDays(startDate, endDate);
+
+    if (businessDays > availableBalance) {
+      showError('Insufficient balance. Available: $availableBalance days');
+      return;
+    }
+
+    setState(() {
+      this.endDate = endDate;
+      this.numberOfDays = businessDays;
+    });
+  }
+
+Example Backend Trigger (SQL):
+
+  CREATE OR REPLACE FUNCTION validate_leave_request()
+  RETURNS TRIGGER AS $$
+  BEGIN
+    -- Prevent past date applications
+    IF NEW.start_date < CURRENT_DATE THEN
+      RAISE EXCEPTION 'Cannot apply for leave in the past';
+    END IF;
+
+    -- Prevent end before start
+    IF NEW.end_date < NEW.start_date THEN
+      RAISE EXCEPTION 'End date must be after start date';
+    END IF;
+
+    -- Check for overlapping approved leave
+    IF EXISTS (
+      SELECT 1 FROM leave_requests
+      WHERE employee_id = NEW.employee_id
+      AND status = 'approved'
+      AND tsrange(start_date, end_date) &&
+          tsrange(NEW.start_date, NEW.end_date)
+    ) THEN
+      RAISE EXCEPTION 'Overlapping approved leave exists';
+    END IF;
+
+    RETURN NEW;
+  END;
+  $$ LANGUAGE plpgsql;
+
+  CREATE TRIGGER check_leave_request
+  BEFORE INSERT ON leave_requests
+  FOR EACH ROW
+  EXECUTE FUNCTION validate_leave_request();
+
+Estimated Effort: 3-4 hours (frontend + backend)
+
+================================================================================
+ISSUE #4: LEAVE BALANCE NOT TRACKED
+================================================================================
+
+Problem:
+  No way to check if employee has sufficient balance before applying leave.
+  The leave_balance table doesn't exist in the schema.
+
+Current State:
+  - leave_requests table exists
+  - Stores individual leave requests
+  - No balance tracking per employee per type
+  - Cannot query "How many casual leave days does John have left?"
+
+What's Needed:
+
+  1. leave_balance Table
+     Purpose: Track annual balance per employee per type
+
+     CREATE TABLE leave_balance (
+       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+       employee_id UUID NOT NULL REFERENCES employees(id),
+       company_id UUID NOT NULL REFERENCES companies(id),
+       leave_type TEXT NOT NULL,
+       fiscal_year INT NOT NULL,
+       allocated_days INT NOT NULL,
+       used_days INT DEFAULT 0,
+       pending_days INT DEFAULT 0,
+       carryover_from_previous_year INT DEFAULT 0,
+       created_at TIMESTAMP DEFAULT now(),
+       updated_at TIMESTAMP DEFAULT now(),
+       UNIQUE(employee_id, leave_type, fiscal_year)
+     );
+
+  2. public_holidays Table
+     Purpose: Define non-working days for leave calculation
+
+     CREATE TABLE public_holidays (
+       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+       company_id UUID NOT NULL REFERENCES companies(id),
+       holiday_name TEXT NOT NULL,
+       holiday_date DATE NOT NULL,
+       is_optional BOOLEAN DEFAULT false,
+       created_at TIMESTAMP DEFAULT now(),
+       UNIQUE(company_id, holiday_date)
+     );
+
+  3. leave_policies Table
+     Purpose: Define allocation rules per company
+
+     CREATE TABLE leave_policies (
+       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+       company_id UUID NOT NULL REFERENCES companies(id),
+       leave_type TEXT NOT NULL,
+       annual_allocation INT NOT NULL,
+       can_carryover BOOLEAN DEFAULT false,
+       max_carryover_days INT DEFAULT 0,
+       fiscal_year_start_month INT DEFAULT 1,
+       created_at TIMESTAMP DEFAULT now(),
+       UNIQUE(company_id, leave_type)
+     );
+
+  4. RPC Function: Calculate Balance
+
+     CREATE OR REPLACE FUNCTION get_leave_balance(
+       p_employee_id UUID,
+       p_leave_type TEXT
+     ) RETURNS INT AS $$
+     DECLARE
+       v_allocated INT;
+       v_used INT;
+       v_pending INT;
+       v_balance INT;
+     BEGIN
+       -- Get allocated balance
+       SELECT allocated_days INTO v_allocated
+       FROM leave_balance
+       WHERE employee_id = p_employee_id
+       AND leave_type = p_leave_type
+       AND fiscal_year = EXTRACT(YEAR FROM CURRENT_DATE);
+
+       -- Calculate used days
+       SELECT COALESCE(SUM(number_of_days), 0) INTO v_used
+       FROM leave_requests
+       WHERE employee_id = p_employee_id
+       AND leave_type = p_leave_type
+       AND status = 'approved'
+       AND EXTRACT(YEAR FROM start_date) = EXTRACT(YEAR FROM CURRENT_DATE);
+
+       -- Calculate pending days
+       SELECT COALESCE(SUM(number_of_days), 0) INTO v_pending
+       FROM leave_requests
+       WHERE employee_id = p_employee_id
+       AND leave_type = p_leave_type
+       AND status = 'pending'
+       AND EXTRACT(YEAR FROM start_date) = EXTRACT(YEAR FROM CURRENT_DATE);
+
+       v_balance := v_allocated - v_used - v_pending;
+       RETURN v_balance;
+     END;
+     $$ LANGUAGE plpgsql;
+
+  5. Service Method: Fetch Balance
+
+     Future<int> getLeaveBalance(
+       String employeeId,
+       String leaveType,
+     ) async {
+       try {
+         final result = await client.rpc(
+           'get_leave_balance',
+           params: {
+             'p_employee_id': employeeId,
+             'p_leave_type': leaveType,
+           },
+         );
+         return result as int;
+       } catch (e) {
+         throw Exception('Failed to calculate balance: $e');
+       }
+     }
+
+How to Display in UI:
+
+  FutureBuilder<int>(
+    future: supabaseService.getLeaveBalance(employeeId, 'casual'),
+    builder: (context, snapshot) {
+      if (snapshot.hasData) {
+        return Text('Balance: ${snapshot.data} days');
+      }
+      if (snapshot.hasError) {
+        return Text('Error loading balance');
+      }
+      return LoadingWidget();
+    },
+  )
+
+  // After form selection, show available
+  FutureBuilder<int>(
+    future: supabaseService.getLeaveBalance(employeeId, selectedType),
+    builder: (context, snapshot) {
+      if (snapshot.hasData) {
+        int available = snapshot.data ?? 0;
+        int requested = calculateBusinessDays(start, end);
+        int remaining = available - requested;
+
+        return Column(
+          children: [
+            Text('Available: $available days'),
+            Text('Requesting: $requested days'),
+            Text(
+              'Remaining: $remaining days',
+              style: TextStyle(
+                color: remaining >= 0 ? Colors.green : Colors.red,
+              ),
+            ),
+            if (remaining < 0)
+              Text('Insufficient balance!', style: errorStyle),
+          ],
+        );
+      }
+      return SizedBox.shrink();
+    },
+  )
+
+Estimated Effort: 4-5 hours (DB design + RPC + service + UI)
+
+================================================================================
+SUMMARY OF CRITICAL GAPS
+================================================================================
+
+The leave workflow is broken at multiple points:
+
+1. SUBMISSION BLOCKED
+   - ApplyLeaveScreen is a placeholder
+   - No form to collect leave details
+   - No submit handler to call Supabase
+   - Fix: 2-3 hours
+
+2. REAL-TIME UPDATES BLOCKED
+   - Infrastructure exists but not used
+   - LeaveStatusScreen doesn't subscribe to updates
+   - User won't see new requests appear
+   - Fix: 2-3 hours
+
+3. VALIDATION MISSING
+   - No checks on date validity
+   - No balance verification
+   - No overlap detection
+   - Invalid requests could be submitted
+   - Fix: 3-4 hours
+
+4. BALANCE TRACKING MISSING
+   - No leave_balance table
+   - No way to check available days
+   - Cannot enforce maximum leave
+   - Users unaware of remaining balance
+   - Fix: 4-5 hours
+
+Total Critical Work: 11-15 hours
+
+Quick Fix (MVP - Get It Working): 5-7 hours
+  1. Basic form (2h)
+  2. Submit to Supabase (1h)
+  3. Add leave_balance table (1h)
+  4. Display balance check (1h)
+  5. Pull-to-refresh on status screen (1h)
+
+================================================================================
+TEST FAILURE ROOT CAUSES
+================================================================================
+
+Why All 8 Tests Failed:
+
+Test 1-3: Attendance Calendar
+  Root Cause: ApplyLeaveScreen is placeholder
+  Resolution: Implement calendar widget with color coding
+
+Test 4: Apply Leave Navigation
+  Root Cause: ApplyLeaveScreen is placeholder
+  Resolution: Create form-based screen
+
+Test 5: Date Range Selection
+  Root Cause: No date picker in form
+  Resolution: Add DateRangePickerDialog
+
+Test 6: Balance Calculation
+  Root Cause: No leave_balance table + no calculation method
+  Resolution: Create table, RPC function, and query method
+
+Test 7: Leave Submission
+  Root Cause: No form handler calling SupabaseService.applyLeave()
+  Resolution: Implement form submission with error handling
+
+Test 8: Leave Status Update
+  Root Cause: LeaveStatusScreen is placeholder + no realtime subscription
+  Resolution: Implement list view with StreamBuilder
+
+None of these are "bugs" in the traditional sense. They are incomplete
+features waiting to be implemented.
+
+================================================================================
+RECOMMENDED IMPLEMENTATION ORDER
+================================================================================
+
+1. First: Set up Supabase credentials in .env
+   Prerequisite: Everything else depends on this
+
+2. Second: Create leave_balance table and RPC function
+   Prerequisite: Need balance before form can work
+
+3. Third: Implement ApplyLeaveScreen form
+   Dependency: Needs balance calculation
+
+4. Fourth: Add basic validation to form
+   Dependency: Needs balance and date checking
+
+5. Fifth: Implement LeaveStatusScreen list view
+   Dependency: Need form to create test data first
+
+6. Sixth: Add StreamBuilder for realtime updates
+   Polish: Can work with manual refresh first
+
+7. Seventh: Add more validation (overlaps, holidays)
+   Enhancement: Optional for MVP
+
+8. Eighth: Add AttendanceCalendarScreen
+   Separate feature: Can work in parallel
+
+Order Rationale: Work backend-first (DB tables, credentials), then UI
+for leave features (form, list), then enhancements (validation, realtime).
+
+================================================================================

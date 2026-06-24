@@ -1,0 +1,47 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "FastAPI (Employee API)",
+      "runtimeExecutable": "uvicorn",
+      "runtimeArgs": ["api.main:app", "--reload", "--port", "8000"],
+      "port": 8000
+    },
+    {
+      "name": "Streamlit (Admin Portal)",
+      "runtimeExecutable": "streamlit",
+      "runtimeArgs": ["run", "app.py", "--server.port", "8501"],
+      "port": 8501
+    },
+    {
+      "name": "Flask (Landing Page)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["landing.py"],
+      "port": 5002
+    },
+    {
+      "name": "Expo (Mobile App)",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["expo", "start", "--web"],
+      "port": 8081
+    },
+    {
+      "name": "Flutter HRMS (Web Build)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8082", "--directory", "lumenor_hrms_flutter/build/web"],
+      "port": 8082
+    },
+    {
+      "name": "Flutter HRMS (Demo Home)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8083", "--directory", "lumenor_hrms_flutter/build/web"],
+      "port": 8083
+    },
+    {
+      "name": "Flutter HRMS (Demo Home 2)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8084", "--directory", "lumenor_hrms_flutter/build/web"],
+      "port": 8084
+    }
+  ]
+}
