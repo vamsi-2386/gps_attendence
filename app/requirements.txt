@@ -1,0 +1,42 @@
+streamlit
+supabase
+fastapi
+uvicorn
+python-multipart
+
+# Utilities
+numpy
+pandas
+fpdf2
+
+# Face Recognition
+scikit-learn
+dlib-bin; sys_platform == 'win32'
+dlib @ https://github.com/Mage-r/dlib-bin/releases/download/v19.24.2/dlib-19.24.2-cp310-cp310-linux_x86_64.whl ; sys_platform == 'linux'
+dlib; sys_platform == 'darwin'
+face-recognition
+face-recognition-models
+setuptools<70.0.0
+
+# Password hashing
+bcrypt
+
+# QR codes
+segno
+
+# Image handling
+pillow
+
+# Voice recognition
+librosa
+webrtcvad-wheels; sys_platform == 'win32'
+webrtcvad; sys_platform != 'win32'
+resemblyzer; sys_platform != 'win32'
+
+# Face and Image processing
+opencv-python-headless
+face_recognition
+
+# Note: On Windows, resemblyzer is installed manually via install.ps1 to bypass build errors.
+streamlit-folium
+folium
