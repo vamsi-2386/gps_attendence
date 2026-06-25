@@ -42,6 +42,12 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "8084", "--directory", "lumenor_hrms_flutter/build/web"],
       "port": 8084
+    },
+    {
+      "name": "Lumenor Web (Vite)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "lumenor-web", "run", "dev", "--", "--port", "5173", "--strictPort", "--host"],
+      "port": 5173
     }
   ]
 }

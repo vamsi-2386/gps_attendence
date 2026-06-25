@@ -6,7 +6,7 @@ import '../../services/hrms_repository.dart';
 import '../../services/local_auth_store.dart';
 import '../../widgets/themed_text.dart';
 import '../../widgets/themed_button.dart';
-import '../admin/admin_overview_screen.dart';
+import '../admin/admin_login_screen.dart';
 import '../login/face_login_screen.dart';
 import 'registration_screen.dart';
 
@@ -29,12 +29,18 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
   Future<void> _onContinue() async {
     if (selectedRole == null || _checking) return;
 
-    // Manager and HR Admin go to the admin dashboard (team overview, leave
-    // approvals, HR review / flagged-events override, site management).
+    // Manager and HR Admin must authenticate with the company credentials
+    // before reaching the admin dashboard (team overview, leave approvals,
+    // HR review / flagged-events override, site management). Without this gate
+    // anyone could open the admin surface and self-approve flagged attendance.
     if (selectedRole != 'employee') {
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const AdminOverviewScreen()),
+        MaterialPageRoute(
+          builder: (_) => AdminLoginScreen(
+            roleLabel: selectedRole == 'manager' ? 'Manager' : 'HR Admin',
+          ),
+        ),
       );
       return;
     }

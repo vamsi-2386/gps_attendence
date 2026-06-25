@@ -1,3 +1,4 @@
+import 'package:bcrypt/bcrypt.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/supabase_config.dart';
 
@@ -35,12 +36,19 @@ class HrmsRepository {
   }
 
   /// Look up an employee by their employee_code (used for code + face login).
+  ///
+  /// Orders by employee_id so the result is deterministic even if the DB ever
+  /// holds two rows with the same code (it shouldn't — there is a UNIQUE
+  /// constraint on employee_code — but a non-deterministic `limit(1)` was the
+  /// root cause of "logged in but attendance not reflecting": login could
+  /// resolve to a different id than the one that owned the records).
   Future<Map<String, dynamic>?> employeeByCode(String employeeCode) async {
     final rows = await _db
         .from('employees')
         .select(
             'employee_id, employee_code, name, company_id, designation, daily_rate, role, office_id')
         .eq('employee_code', employeeCode)
+        .order('employee_id')
         .limit(1);
     final list = rows as List;
     return list.isEmpty ? null : list.first as Map<String, dynamic>;
@@ -136,6 +144,15 @@ class HrmsRepository {
     int? officeId,
     List<double>? faceEmbedding,
   }) async {
+    // Guard against duplicate employee codes at the app layer (in addition to
+    // the DB UNIQUE constraint). Two rows sharing a code make login resolve
+    // non-deterministically and split one person's attendance across ids.
+    final existing = await employeeByCode(employeeCode);
+    if (existing != null) {
+      throw Exception(
+          'Employee code "$employeeCode" is already registered. Use a unique code.');
+    }
+
     final payload = <String, dynamic>{
       'employee_code': employeeCode,
       'name': name,
@@ -190,6 +207,66 @@ class HrmsRepository {
     return list.isEmpty ? null : list.first as Map<String, dynamic>;
   }
 
+  /// Authenticate a company admin (Manager/HR) for the mobile admin dashboard.
+  /// Mirrors the Streamlit `company_login`: looks up by username and verifies
+  /// the entered password against the stored bcrypt hash. Returns the company
+  /// row (with `company_id` mapped, hash stripped) on success, else null.
+  ///
+  /// This is the gate that stops anyone from opening the admin surface and
+  /// self-approving flagged attendance. It is not a substitute for server-side
+  /// RLS, but it closes the open-admin hole on the client.
+  Future<Map<String, dynamic>?> companyLogin(
+      String username, String password) async {
+    final rows = await _db
+        .from('companys')
+        .select(
+            'id, name, username, password, company_invite_code, office_lat, office_lng, office_radius')
+        .eq('username', username)
+        .limit(1);
+    final list = rows as List;
+    if (list.isEmpty) return null;
+    final company = Map<String, dynamic>.from(list.first as Map);
+    final hash = (company['password'] ?? '').toString();
+    if (hash.isEmpty) return null;
+    bool ok;
+    try {
+      ok = BCrypt.checkpw(password, hash);
+    } catch (_) {
+      ok = false; // malformed hash → deny
+    }
+    if (!ok) return null;
+    company.remove('password'); // never keep the hash in memory longer than needed
+    company['company_id'] = company['id'];
+    return company;
+  }
+
+  /// Authenticate a Manager/HR staff account (staff_accounts table) — the same
+  /// credentials created in the web dashboard. Used by the mobile admin login
+  /// in addition to the company login. Returns the row (hash stripped, with
+  /// `role` and `company_id`) on success, else null.
+  Future<Map<String, dynamic>?> staffLogin(
+      String username, String password) async {
+    final rows = await _db
+        .from('staff_accounts')
+        .select('id, company_id, name, username, password, role')
+        .eq('username', username)
+        .limit(1);
+    final list = rows as List;
+    if (list.isEmpty) return null;
+    final staff = Map<String, dynamic>.from(list.first as Map);
+    final hash = (staff['password'] ?? '').toString();
+    if (hash.isEmpty) return null;
+    bool ok;
+    try {
+      ok = BCrypt.checkpw(password, hash);
+    } catch (_) {
+      ok = false;
+    }
+    if (!ok) return null;
+    staff.remove('password');
+    return staff;
+  }
+
   Future<Map<String, dynamic>?> company(int companyId) async {
     final rows = await _db
         .from('companys')
@@ -219,6 +296,20 @@ class HrmsRepository {
         .select(_attendanceCols)
         .eq('employee_id', employeeId)
         .order('timestamp', ascending: false);
+    return (rows as List).cast<Map<String, dynamic>>();
+  }
+
+  /// Recent attendance rows for a whole company (admin dashboard). Ordered
+  /// newest-first; callers filter to "today" in local time. Limited so the
+  /// dashboard query stays light.
+  Future<List<Map<String, dynamic>>> companyAttendanceRecent(int companyId,
+      {int limit = 200}) async {
+    final rows = await _db
+        .from('attendance_logs')
+        .select(_attendanceCols)
+        .eq('company_id', companyId)
+        .order('timestamp', ascending: false)
+        .limit(limit);
     return (rows as List).cast<Map<String, dynamic>>();
   }
 

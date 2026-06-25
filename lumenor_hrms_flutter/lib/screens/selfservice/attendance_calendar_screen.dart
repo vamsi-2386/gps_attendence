@@ -111,31 +111,28 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
     return map;
   }
 
-  /// Deterministic mock status so the grid renders standalone for testing.
-  /// Used as the graceful fallback when live logs are unavailable.
-  DayStatus _statusForDay(int day) {
-    final candidate = DateTime(_visibleMonth.year, _visibleMonth.month, day);
-    final today = DateTime.now();
-    final todayMidnight = DateTime(today.year, today.month, today.day);
+  /// Real assigned-site label (the geofence office the employee checks in
+  /// against), so the header/timeline never shows a placeholder site name.
+  String get _siteLabel {
+    final office = AppSession.instance.officeName;
+    return office.isNotEmpty ? office : widget.subjectName;
+  }
 
-    if (candidate.isAfter(todayMidnight)) {
-      return DayStatus.future;
-    }
-    // Weekends rendered as "future"/empty (non-working days).
-    if (candidate.weekday == DateTime.sunday) {
-      return DayStatus.future;
-    }
-    // Spread a believable mix across the month.
-    switch (day % 9) {
-      case 0:
-        return DayStatus.absent;
-      case 3:
-        return DayStatus.leave;
-      case 6:
-        return DayStatus.halfDay;
-      default:
-        return DayStatus.present;
-    }
+  Widget _buildMessage(IconData icon, String message) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppTheme.spacingLarge),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 56, color: AppTheme.textSecondary),
+            const SizedBox(height: AppTheme.spacingMedium),
+            BodyMediumText(message,
+                color: AppTheme.textSecondary, textAlign: TextAlign.center),
+          ],
+        ),
+      ),
+    );
   }
 
   /// Real attendance status for [day] from the live logs map. A present log
@@ -210,11 +207,13 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
                     ),
                   );
                 }
-                // On error or empty, fall back to mock coloring (logsByDay null).
+                if (snap.hasError) {
+                  return _buildMessage(Icons.cloud_off,
+                      'Couldn’t load your attendance.\nCheck your connection and reopen.');
+                }
+                // Real attendance only — past days with no record show "No Record".
                 final rows = snap.data ?? const <Map<String, dynamic>>[];
-                final Map<DateTime, Map<String, dynamic>>? logsByDay =
-                    (snap.hasError || rows.isEmpty) ? null : _logsByDay(rows);
-                return _buildCalendarBody(logsByDay);
+                return _buildCalendarBody(_logsByDay(rows));
               },
             ),
           ),
@@ -223,9 +222,8 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
     );
   }
 
-  /// The scrollable grid + legend. When [logsByDay] is null the screen renders
-  /// from the deterministic mock data instead of live attendance.
-  Widget _buildCalendarBody(Map<DateTime, Map<String, dynamic>>? logsByDay) {
+  /// The scrollable grid + legend, rendered from real attendance only.
+  Widget _buildCalendarBody(Map<DateTime, Map<String, dynamic>> logsByDay) {
     final daysInMonth =
         DateTime(_visibleMonth.year, _visibleMonth.month + 1, 0).day;
     // weekday: Mon=1..Sun=7 -> number of blank leading cells.
@@ -290,7 +288,7 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
             children: [
               HeadingMediumText(title),
               const SizedBox(height: AppTheme.spacingXSmall),
-              BodySmallText(widget.subjectName, color: AppTheme.textSecondary),
+              BodySmallText(_siteLabel, color: AppTheme.textSecondary),
             ],
           ),
           IconButton(
@@ -325,11 +323,8 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
   }
 
   Widget _buildDayCell(
-      int day, Map<DateTime, Map<String, dynamic>>? logsByDay) {
-    // Live status when logs are available, otherwise the mock fallback.
-    final status = logsByDay == null
-        ? _statusForDay(day)
-        : _liveStatusForDay(day, logsByDay);
+      int day, Map<DateTime, Map<String, dynamic>> logsByDay) {
+    final status = _liveStatusForDay(day, logsByDay);
     final color = _colorForStatus(status);
     final isFuture = status == DayStatus.future;
     final now = DateTime.now();
@@ -402,16 +397,14 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
   }
 
   void _showDayDetail(int day, DayStatus status,
-      Map<DateTime, Map<String, dynamic>>? logsByDay) {
+      Map<DateTime, Map<String, dynamic>> logsByDay) {
     final dateLabel =
         '${_monthNames[_visibleMonth.month - 1]} $day, ${_visibleMonth.year}';
 
-    // Prefer the real log for this day when live data is loaded; otherwise the
-    // existing mock timeline keeps the sheet populated as a fallback.
+    // Real punches only; a day with no record shows an empty-state message.
     final candidate = DateTime(_visibleMonth.year, _visibleMonth.month, day);
-    final Map<String, dynamic>? log = logsByDay?[candidate];
-    final events =
-        log != null ? _timelineForLog(log) : _mockTimelineFor(status);
+    final Map<String, dynamic>? log = logsByDay[candidate];
+    final events = log != null ? _timelineForLog(log) : <_PunchEvent>[];
     final statusColor = _colorForStatus(status);
 
     showModalBottomSheet<void>(
@@ -448,7 +441,7 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
                 ],
               ),
               const SizedBox(height: AppTheme.spacingXSmall),
-              BodySmallText(widget.subjectName, color: AppTheme.textSecondary),
+              BodySmallText(_siteLabel, color: AppTheme.textSecondary),
               const SizedBox(height: AppTheme.spacingLarge),
               if (events.isEmpty)
                 Padding(
@@ -550,7 +543,7 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
         _PunchEvent(
           label: 'Clock In',
           time: timeFmt.format(checkIn),
-          site: subtitle(widget.subjectName),
+          site: subtitle(_siteLabel),
           icon: Icons.login,
           color: flagged
               ? AppTheme.warningColor
@@ -577,7 +570,7 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
         _PunchEvent(
           label: 'Clock Out',
           time: timeFmt.format(checkOut),
-          site: subtitle(widget.subjectName),
+          site: subtitle(_siteLabel),
           icon: Icons.logout,
           color: AppTheme.infoColor,
         ),
@@ -609,64 +602,4 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
     return events;
   }
 
-  List<_PunchEvent> _mockTimelineFor(DayStatus status) {
-    switch (status) {
-      case DayStatus.present:
-        return [
-          _PunchEvent(
-            label: 'Clock In',
-            time: '09:02 AM',
-            site: 'Inside geofence (12 m)',
-            icon: Icons.login,
-            color: AppTheme.successColor,
-          ),
-          _PunchEvent(
-            label: 'Clock Out',
-            time: '06:14 PM',
-            site: 'Inside geofence (9 m)',
-            icon: Icons.logout,
-            color: AppTheme.infoColor,
-          ),
-        ];
-      case DayStatus.halfDay:
-        return [
-          _PunchEvent(
-            label: 'Clock In',
-            time: '09:10 AM',
-            site: 'Inside geofence (18 m)',
-            icon: Icons.login,
-            color: AppTheme.successColor,
-          ),
-          _PunchEvent(
-            label: 'Clock Out',
-            time: '01:05 PM',
-            site: 'Early departure approved',
-            icon: Icons.logout,
-            color: AppTheme.warningColor,
-          ),
-        ];
-      case DayStatus.leave:
-        return [
-          _PunchEvent(
-            label: 'Approved Leave',
-            time: 'All day',
-            site: 'Casual leave',
-            icon: Icons.beach_access,
-            color: AppTheme.infoColor,
-          ),
-        ];
-      case DayStatus.absent:
-        return [
-          _PunchEvent(
-            label: 'No Clock In',
-            time: '--:--',
-            site: 'Marked absent by system',
-            icon: Icons.error_outline,
-            color: AppTheme.errorColor,
-          ),
-        ];
-      case DayStatus.future:
-        return const [];
-    }
-  }
 }

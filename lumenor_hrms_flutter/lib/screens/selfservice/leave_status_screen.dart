@@ -15,7 +15,6 @@ class _LeaveRequest {
   final int workingDays;
   final String reason;
   String status; // Pending / Approved / Rejected
-  final String? rejectionReason;
   final String createdAt;
 
   _LeaveRequest({
@@ -27,7 +26,6 @@ class _LeaveRequest {
     required this.reason,
     required this.status,
     required this.createdAt,
-    this.rejectionReason,
   });
 }
 
@@ -49,55 +47,6 @@ class LeaveStatusScreen extends StatefulWidget {
 }
 
 class _LeaveStatusScreenState extends State<LeaveStatusScreen> {
-  /// Mock requests kept as a graceful fallback when the live query errors or
-  /// returns no rows — the screen should never render blank.
-  final List<_LeaveRequest> _mockRequests = [
-    _LeaveRequest(
-      id: 1,
-      leaveType: 'Casual',
-      startDate: '24 Jun 2026',
-      endDate: '26 Jun 2026',
-      workingDays: 3,
-      reason: 'Family function out of town.',
-      status: 'Pending',
-      createdAt: '22 Jun 2026',
-    ),
-    _LeaveRequest(
-      id: 2,
-      leaveType: 'Sick',
-      startDate: '10 Jun 2026',
-      endDate: '11 Jun 2026',
-      workingDays: 2,
-      reason: 'Viral fever, doctor advised rest.',
-      status: 'Approved',
-      createdAt: '09 Jun 2026',
-    ),
-    _LeaveRequest(
-      id: 3,
-      leaveType: 'Earned',
-      startDate: '02 May 2026',
-      endDate: '06 May 2026',
-      workingDays: 5,
-      reason: 'Annual vacation.',
-      status: 'Rejected',
-      createdAt: '20 Apr 2026',
-      rejectionReason:
-          'Two team members already on leave for this period. '
-          'Please re-apply for a later week.',
-    ),
-    _LeaveRequest(
-      id: 4,
-      leaveType: 'Casual',
-      startDate: '15 Apr 2026',
-      endDate: '15 Apr 2026',
-      workingDays: 1,
-      reason: 'Personal errand.',
-      status: 'Approved',
-      createdAt: '12 Apr 2026',
-    ),
-  ];
-
-  final Set<int> _expanded = {};
 
   // Re-run the future when this changes (e.g. after cancelling a request).
   int _reloadTick = 0;
@@ -215,17 +164,13 @@ class _LeaveStatusScreenState extends State<LeaveStatusScreen> {
             );
           }
 
-          // On error or empty, fall back to the mock list so we never show
-          // a blank screen.
-          final List<_LeaveRequest> requests;
+          // Show the employee's REAL leave requests only — never fabricated
+          // rows. On error, say so; on no rows, show the honest empty state.
           if (snap.hasError) {
-            requests = _mockRequests;
-          } else {
-            final rows = snap.data ?? const <Map<String, dynamic>>[];
-            requests = rows.isEmpty
-                ? _mockRequests
-                : rows.map(_fromRow).toList();
+            return _buildErrorState();
           }
+          final rows = snap.data ?? const <Map<String, dynamic>>[];
+          final requests = rows.map(_fromRow).toList();
 
           if (requests.isEmpty) {
             return _buildEmptyState();
@@ -266,11 +211,31 @@ class _LeaveStatusScreenState extends State<LeaveStatusScreen> {
     );
   }
 
+  Widget _buildErrorState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppTheme.spacingLarge),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off, size: 64, color: AppTheme.textSecondary),
+            const SizedBox(height: AppTheme.spacingMedium),
+            const BodyLargeText('Couldn’t load your leave requests'),
+            const SizedBox(height: AppTheme.spacingXSmall),
+            const BodySmallText(
+              'Check your connection and tap Apply or reopen this screen to retry.',
+              color: AppTheme.textSecondary,
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildRequestCard(_LeaveRequest request) {
     final color = _statusColor(request.status);
-    final isRejected = request.status == 'Rejected';
     final isPending = request.status == 'Pending';
-    final isOpen = _expanded.contains(request.id);
 
     return Container(
       decoration: BoxDecoration(
@@ -333,10 +298,6 @@ class _LeaveStatusScreenState extends State<LeaveStatusScreen> {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      if (isRejected && request.rejectionReason != null) ...[
-                        const SizedBox(height: AppTheme.spacingSmall),
-                        _buildRejectionSection(request, isOpen),
-                      ],
                       if (isPending) ...[
                         const SizedBox(height: AppTheme.spacingSmall),
                         Align(
@@ -363,56 +324,6 @@ class _LeaveStatusScreenState extends State<LeaveStatusScreen> {
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildRejectionSection(_LeaveRequest request, bool isOpen) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        InkWell(
-          onTap: () {
-            setState(() {
-              if (isOpen) {
-                _expanded.remove(request.id);
-              } else {
-                _expanded.add(request.id);
-              }
-            });
-          },
-          child: Row(
-            children: [
-              LabelText(
-                isOpen ? 'Hide rejection reason' : 'View rejection reason',
-                isSmall: true,
-                color: AppTheme.errorColor,
-              ),
-              Icon(
-                isOpen ? Icons.expand_less : Icons.expand_more,
-                size: 18,
-                color: AppTheme.errorColor,
-              ),
-            ],
-          ),
-        ),
-        if (isOpen)
-          Container(
-            width: double.infinity,
-            margin: const EdgeInsets.only(top: AppTheme.spacingSmall),
-            padding: const EdgeInsets.all(AppTheme.spacingMedium),
-            decoration: BoxDecoration(
-              color: AppTheme.errorColor.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-              border: Border.all(
-                color: AppTheme.errorColor.withValues(alpha: 0.4),
-              ),
-            ),
-            child: BodyMediumText(
-              request.rejectionReason ?? 'No reason provided.',
-              color: AppTheme.textPrimary,
-            ),
-          ),
-      ],
     );
   }
 

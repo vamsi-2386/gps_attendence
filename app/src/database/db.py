@@ -12,6 +12,58 @@ def check_pass(pwd, hashed):
 def generate_invite_code(length=6):
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
 
+# --- Manager / HR staff accounts (web-created, usable on web + mobile) -------
+
+def create_staff_account(company_id, name, username, password, role, email=None):
+    """Create a Manager/HR login. Returns (ok, message)."""
+    username = (username or '').strip()
+    name = (name or '').strip()
+    if not username or not name or not password:
+        return False, "Name, username and password are required."
+    if role not in ('manager', 'hr'):
+        return False, "Role must be Manager or HR."
+    # Reject duplicate usernames (staff or company) so login stays unambiguous.
+    existing = supabase.table('staff_accounts').select('id').eq('username', username).execute()
+    if existing.data:
+        return False, "That username is already taken."
+    if check_company_exists(username):
+        return False, "That username clashes with a company login."
+    supabase.table('staff_accounts').insert({
+        'company_id': company_id,
+        'name': name,
+        'email': (email or '').strip() or None,
+        'username': username,
+        'password': hash_pass(password),
+        'role': role,
+    }).execute()
+    return True, f"{role.upper()} account '{username}' created."
+
+def get_staff_accounts(company_id):
+    response = (
+        supabase.table('staff_accounts')
+        .select('id, name, email, username, role, created_at')
+        .eq('company_id', company_id)
+        .order('created_at', desc=True)
+        .execute()
+    )
+    return response.data
+
+def delete_staff_account(staff_id):
+    supabase.table('staff_accounts').delete().eq('id', staff_id).execute()
+
+def staff_login(username, password):
+    """Authenticate a Manager/HR account. Returns the row (+ company_id, role)
+    on success, else None."""
+    username = (username or '').strip()
+    if not username or not password:
+        return None
+    res = supabase.table('staff_accounts').select('*').eq('username', username).execute()
+    if res.data and check_pass(password, res.data[0]['password']):
+        staff = res.data[0]
+        staff.pop('password', None)
+        return staff
+    return None
+
 def check_company_exists(username):
     response = supabase.table('companys').select('username').eq('username', username).execute()
     return len(response.data) > 0
@@ -361,9 +413,18 @@ def update_employee_rate(employee_id, new_rate):
     supabase.table('employees').update({'daily_rate': new_rate}).eq('employee_id', employee_id).execute()
 
 def get_audit_logs_for_company(company_id):
-    # Retrieve all logs related to this company or its employees
-    # For prototype, we'll just pull all and filter or assume user_id is company_id for company actions
-    response = supabase.table('audit_logs').select('*').order('created_at', desc=True).limit(100).execute()
+    # Scope to THIS company's audit actions only. Company-role actions are
+    # logged with user_id == company_id (see log_audit_action callers), so
+    # filtering by user_id prevents one company from reading another's audit
+    # trail (cross-tenant IDOR) once more than one company exists.
+    response = (
+        supabase.table('audit_logs')
+        .select('*')
+        .eq('user_id', company_id)
+        .order('created_at', desc=True)
+        .limit(100)
+        .execute()
+    )
     return response.data
 
 def log_verification_event(employee_id, company_id, step_name, pass_fail, score, failure_reason=""):

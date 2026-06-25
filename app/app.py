@@ -9,13 +9,28 @@ from PIL import Image
 
 from src.screens.home_screen import home_screen
 from src.screens.company_screen import company_screen
+from src.ui.base_layout import desktop_only_guard
+
+# Lumenor logo used as the browser tab / app icon. Falls back to an emoji if
+# the asset is missing so the app never fails to boot.
+_LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lumenor.png')
+try:
+    _PAGE_ICON = Image.open(_LOGO_PATH)
+except Exception:
+    _PAGE_ICON = '🟣'
 
 def main():
     st.set_page_config(
-        page_title='Lumenor — AI Attendance Platform',
-        page_icon='🟣',          # emoji icon — no file dependency
-        layout="centered",
+        page_title='Lumenor HRMS',
+        page_icon=_PAGE_ICON,
+        # Wide layout gives the 10-tab admin dashboard (tables, charts, the
+        # office map) room to breathe; the landing page stays centered via its
+        # own [1,2,1] column split.
+        layout="wide",
     )
+
+    # Block phones/small screens with a "desktop only" notice.
+    desktop_only_guard()
 
     if 'login_type' not in st.session_state:
         st.session_state['login_type'] = None
