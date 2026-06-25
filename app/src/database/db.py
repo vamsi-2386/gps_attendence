@@ -228,9 +228,16 @@ def update_company_location(company_id, lat, lng, radius):
     }).eq('id', company_id).execute()
 
 def employee_gps_checkin(employee_id, subject_id, timestamp, lat, lng, status, is_present=True):
-    # DISABLED: attendance is created only by the mobile geofence flow.
-    print("employee_gps_checkin is disabled — use the mobile app to clock in.")
-    return None
+    response = supabase.table('attendance_logs').insert({
+        'employee_id': employee_id,
+        'subject_id': subject_id,
+        'timestamp': timestamp,
+        'latitude': lat,
+        'longitude': lng,
+        'location_status': status,
+        'is_present': is_present
+    }).execute()
+    return response.data
 
 def employee_gps_checkout(attendance_id, checkout_time):
     supabase.table('attendance_logs').update({
