@@ -420,12 +420,16 @@ class HrmsRepository {
     return list.isEmpty ? null : list.first as Map<String, dynamic>;
   }
 
-  /// The most recent attendance log dated today, if any.
+  /// The most recent attendance log dated today (local day), if any.
+  /// Timestamps are stored in UTC, so convert to local before comparing the
+  /// calendar day — this is what enforces one attendance record per local day.
   Future<Map<String, dynamic>?> todayAttendance(int employeeId) async {
     final logs = await attendanceLogs(employeeId);
     final now = DateTime.now();
     for (final log in logs) {
-      final ts = DateTime.tryParse('${log['timestamp']}');
+      final ts =
+          DateTime.tryParse('${log['check_in_time'] ?? log['timestamp']}')
+              ?.toLocal();
       if (ts != null &&
           ts.year == now.year &&
           ts.month == now.month &&

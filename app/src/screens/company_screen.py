@@ -191,6 +191,20 @@ def company_tab_manage_employees():
 
 
 def company_tab_take_attendance():
+    st.header('Attendance')
+    st.info(
+        "📱 Attendance is recorded **only from the Lumenor mobile app** "
+        "(GPS geofence check-in / check-out). This portal is for the dashboard, "
+        "reports, HR review and approvals."
+    )
+    st.markdown(
+        "- Employees clock in / out on the mobile app; records appear under "
+        "**Records** and the analytics here in real time.\n"
+        "- Out-of-geofence check-ins are flagged for HR under **Overrides**.\n"
+        "- One attendance record is allowed per employee per day."
+    )
+    return  # mobile is the single attendance source — legacy creation below disabled
+
     company_id = st.session_state.company_data['company_id']
     st.header('Take AI Attendance')
 

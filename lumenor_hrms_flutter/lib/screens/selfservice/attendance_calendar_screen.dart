@@ -101,7 +101,9 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
       List<Map<String, dynamic>> rows) {
     final map = <DateTime, Map<String, dynamic>>{};
     for (final row in rows) {
-      final ts = DateTime.tryParse('${row['timestamp']}');
+      // Timestamps are stored in UTC — bucket by the LOCAL calendar day.
+      final ts = DateTime.tryParse('${row['check_in_time'] ?? row['timestamp']}')
+          ?.toLocal();
       if (ts == null) continue;
       final key = DateTime(ts.year, ts.month, ts.day);
       map.putIfAbsent(key, () => row);
