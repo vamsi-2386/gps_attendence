@@ -610,7 +610,7 @@ def company_tab_analytics():
     
     # KPI Cards
     today = pd.Timestamp.now().strftime('%Y-%m-%d')
-    today_records = df[df['timestamp'].str.startswith(today)] if not df.empty else pd.DataFrame()
+    today_records = df[df['timestamp'].str.startswith(today, na=False)] if not df.empty else pd.DataFrame()
     
     present_today = len(today_records)
     total_records = len(df)
@@ -621,7 +621,9 @@ def company_tab_analytics():
     
     # Simple Chart
     st.subheader("Attendance Over Time")
-    df['date'] = pd.to_datetime(df['timestamp'], format='mixed', errors='coerce').dt.date
+    # Clean the timestamp and enforce UTC to guarantee a datetime64 series that has the .dt accessor
+    clean_timestamps = df['timestamp'].astype(str).str.replace('Z', '+00:00')
+    df['date'] = pd.to_datetime(clean_timestamps, errors='coerce', utc=True).dt.date
     daily_counts = df.groupby('date').size().reset_index(name='counts')
     fig = px.line(daily_counts, x='date', y='counts', title='Daily Check-ins')
     st.plotly_chart(fig, use_container_width=True)
