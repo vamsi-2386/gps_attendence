@@ -205,7 +205,7 @@ def employee_dashboard():
                                 time.sleep(1)
                                 st.rerun()
                         else:
-                            st.info(f"🕐 Checked in at **{datetime.fromisoformat(active_log['timestamp']).strftime('%I:%M %p')}**. Ready to check out?")
+                            st.info(f"🕐 Checked in at **{pd.to_datetime(active_log['timestamp']).strftime('%I:%M %p')}**. Ready to check out?")
                             if st.button("🚪 Check-Out", type='secondary', use_container_width=True):
                                 employee_gps_checkout(active_log['id'], datetime.now().isoformat())
                                 st.success("✅ Checked out successfully!")
@@ -273,8 +273,8 @@ def employee_dashboard():
                 check_out = r.get('checkout_time')
                 data.append({
                     "Date": ts.split("T")[0] if ts else "N/A",
-                    "Check-In Time": datetime.fromisoformat(ts).strftime("%I:%M %p") if ts else "N/A",
-                    "Check-Out Time": datetime.fromisoformat(check_out).strftime("%I:%M %p") if check_out else "Still Active",
+                    "Check-In Time": pd.to_datetime(ts).strftime("%I:%M %p") if ts else "N/A",
+                    "Check-Out Time": pd.to_datetime(check_out).strftime("%I:%M %p") if check_out else "Still Active",
                     "Project": r.get('subject_name', 'Unknown'),
                     "Status": "✅ Present" if r.get('is_present') else "❌ Absent",
                     "Location": r.get('location_status', 'N/A')
@@ -356,7 +356,7 @@ def employee_leave_portal(employee_id, company_id):
         leave_data = []
         for r in requests:
             leave_data.append({
-                "Applied On": datetime.fromisoformat(r['created_at'].split('.')[0]).strftime("%Y-%m-%d"),
+                "Applied On": pd.to_datetime(r['created_at']).strftime("%Y-%m-%d") if r.get('created_at') else "N/A",
                 "Start Date": r['start_date'],
                 "End Date": r['end_date'],
                 "Reason": r['reason'],

@@ -389,8 +389,8 @@ def company_tab_attendance_records():
         data.append({
             "id": r.get('id'),
             "ts_group": ts.split(".")[0] if ts else None,
-            "Check-In Time": datetime.fromisoformat(ts).strftime("%Y-%m-%d %I:%M %p") if ts else "N/A",
-            "Check-Out Time": datetime.fromisoformat(check_out).strftime("%Y-%m-%d %I:%M %p") if check_out else "Still Active",
+            "Check-In Time": pd.to_datetime(ts).strftime("%Y-%m-%d %I:%M %p") if ts else "N/A",
+            "Check-Out Time": pd.to_datetime(check_out).strftime("%Y-%m-%d %I:%M %p") if check_out else "Still Active",
             "Project": r['subjects']['name'],
             "Employee": r['employee_name'],
             "is_present": bool(r.get('is_present', False)),
@@ -841,7 +841,7 @@ def company_tab_audit_logs():
     log_data = []
     for log in logs:
         log_data.append({
-            "Timestamp": datetime.fromisoformat(log['created_at'].split('.')[0]).strftime("%Y-%m-%d %H:%M:%S"),
+            "Timestamp": pd.to_datetime(log['created_at']).strftime("%Y-%m-%d %H:%M:%S") if log.get('created_at') else "N/A",
             "Action": log['action_type'],
             "Role": log['user_role'],
             "User ID": log['user_id'],
