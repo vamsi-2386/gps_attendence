@@ -386,11 +386,20 @@ def company_tab_attendance_records():
         ts = r.get('timestamp')
         check_out = r.get('checkout_time')
         
+        def safe_format_date(date_val, fmt="%Y-%m-%d %I:%M %p"):
+            if not date_val or str(date_val).strip().lower() in ['none', 'null', 'n/a', '']:
+                return "N/A"
+            try:
+                dt_str = str(date_val).replace("Z", "+00:00")
+                return pd.to_datetime(dt_str).strftime(fmt)
+            except Exception:
+                return "Invalid Date"
+
         data.append({
             "id": r.get('id'),
-            "ts_group": ts.split(".")[0] if ts else None,
-            "Check-In Time": pd.to_datetime(ts).strftime("%Y-%m-%d %I:%M %p") if ts else "N/A",
-            "Check-Out Time": pd.to_datetime(check_out).strftime("%Y-%m-%d %I:%M %p") if check_out else "Still Active",
+            "ts_group": str(ts).split(".")[0] if ts else None,
+            "Check-In Time": safe_format_date(ts),
+            "Check-Out Time": safe_format_date(check_out) if check_out else "Still Active",
             "Project": r['subjects']['name'],
             "Employee": r['employee_name'],
             "is_present": bool(r.get('is_present', False)),
@@ -840,8 +849,17 @@ def company_tab_audit_logs():
         
     log_data = []
     for log in logs:
+        def safe_format_date_audit(date_val):
+            if not date_val or str(date_val).strip().lower() in ['none', 'null', 'n/a', '']:
+                return "N/A"
+            try:
+                dt_str = str(date_val).replace("Z", "+00:00")
+                return pd.to_datetime(dt_str).strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                return "Invalid Date"
+                
         log_data.append({
-            "Timestamp": pd.to_datetime(log['created_at']).strftime("%Y-%m-%d %H:%M:%S") if log.get('created_at') else "N/A",
+            "Timestamp": safe_format_date_audit(log.get('created_at')),
             "Action": log['action_type'],
             "Role": log['user_role'],
             "User ID": log['user_id'],
