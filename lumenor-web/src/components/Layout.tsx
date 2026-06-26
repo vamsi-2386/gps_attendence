@@ -40,12 +40,11 @@ export function Layout() {
           open ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4">
-          <img src="/lumenor.png" alt="Lumenor" className="h-8 w-8 rounded" />
-          <div>
-            <p className="text-sm font-bold leading-tight text-slate-900">Lumenor HRMS</p>
-            <p className="text-xs text-slate-400">Admin Console</p>
-          </div>
+        <div className="border-b border-slate-100 px-5 py-4">
+          <img src="/lumenor-logo.svg" alt="Lumenor" className="h-6" />
+          <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            HRMS Admin Console
+          </p>
         </div>
         <nav className="space-y-1 p-3">
           {NAV.map((n) => (

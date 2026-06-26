@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import '../../config/app_theme.dart';
 import '../../services/app_session.dart';
@@ -12,6 +13,10 @@ import '../../widgets/themed_button.dart';
 import '../../widgets/themed_card.dart';
 import '../selfservice/attendance_calendar_screen.dart';
 import '../selfservice/leave_status_screen.dart';
+
+/// Where the device-location flow currently is — drives the geofence card and
+/// whether Clock In is allowed.
+enum LocationState { checking, serviceDisabled, denied, deniedForever, error, ready }
 
 /// Employee Home Screen (dashboard)
 ///
@@ -27,7 +32,8 @@ class EmployeeHomeScreen extends StatefulWidget {
   State<EmployeeHomeScreen> createState() => _EmployeeHomeScreenState();
 }
 
-class _EmployeeHomeScreenState extends State<EmployeeHomeScreen> {
+class _EmployeeHomeScreenState extends State<EmployeeHomeScreen>
+    with WidgetsBindingObserver {
   int _currentIndex = 0;
 
   bool _loadingDash = true;
@@ -35,19 +41,42 @@ class _EmployeeHomeScreenState extends State<EmployeeHomeScreen> {
   Map<String, dynamic>? _today; // today's attendance row
   Map<String, dynamic>? _site; // assigned site (with geofence)
   GeofenceResult? _geo; // live GPS vs site
+  LocationState _locState = LocationState.checking;
   String? _gpsError;
   Timer? _ticker; // drives the live worked-hours timer while clocked in
+  StreamSubscription<ServiceStatus>? _svcSub; // auto-refresh when GPS toggles
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // Auto-refresh the instant the user toggles GPS in the system tray.
+    _svcSub = Geolocator.getServiceStatusStream().listen((status) {
+      if (!mounted) return;
+      if (status == ServiceStatus.enabled) {
+        _refreshLocation();
+      } else {
+        setState(() {
+          _locState = LocationState.serviceDisabled;
+          _geo = null;
+        });
+      }
+    });
     _loadDashboard();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _svcSub?.cancel();
     _ticker?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Re-check after the user returns from Location/App settings.
+    if (state == AppLifecycleState.resumed) _refreshLocation();
   }
 
   String get _firstName {
@@ -88,30 +117,100 @@ class _EmployeeHomeScreenState extends State<EmployeeHomeScreen> {
     final session = AppSession.instance;
     try {
       _today = await repo.todayAttendance(session.employeeId);
-
       // The assigned site IS the office the admin assigned to this employee.
-      final office = await repo.assignedOffice(session.employeeId, session.companyId);
-      _site = office;
-
-      // Live GPS + geofence evaluation against the assigned office.
-      _gpsError = null;
-      try {
-        final pos = await GeofenceService.currentPosition();
-        final lat = (office?['latitude'] as num?)?.toDouble();
-        final lng = (office?['longitude'] as num?)?.toDouble();
-        final radius = (office?['radius'] as num?)?.toInt() ?? 200;
-        _geo = GeofenceService.evaluate(
-            pos: pos, siteLat: lat, siteLng: lng, radius: radius);
-      } catch (_) {
-        _geo = null;
-        _gpsError = 'Location unavailable. Enable GPS to see geofence status.';
-      }
+      _site = await repo.assignedOffice(session.employeeId, session.companyId);
     } catch (e) {
       _gpsError = 'Could not load dashboard: $e';
     } finally {
       if (mounted) setState(() => _loadingDash = false);
       _syncTicker(); // start/stop the live worked timer based on today's state
     }
+    // Resolve the device location/permission flow against the loaded site.
+    await _refreshLocation();
+  }
+
+  /// Full device-location flow — GPS service → permission → real fix → geofence.
+  /// Drives [_locState] so the card and the Clock In gate reflect reality. Safe
+  /// to call repeatedly (on resume, on GPS toggle, on retry).
+  Future<void> _refreshLocation() async {
+    if (mounted) {
+      setState(() {
+        _locState = LocationState.checking;
+        _gpsError = null;
+      });
+    }
+    try {
+      // 1. Location service (GPS) must be ON.
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        if (mounted) {
+          setState(() {
+            _locState = LocationState.serviceDisabled;
+            _geo = null;
+          });
+        }
+        return;
+      }
+      // 2. Permission — request it if not yet granted.
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.deniedForever) {
+        if (mounted) {
+          setState(() {
+            _locState = LocationState.deniedForever;
+            _geo = null;
+          });
+        }
+        return;
+      }
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.unableToDetermine) {
+        if (mounted) {
+          setState(() {
+            _locState = LocationState.denied;
+            _geo = null;
+          });
+        }
+        return;
+      }
+      // 3. Fetch a real fix and evaluate the geofence against the assigned site.
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 15),
+      );
+      final lat = (_site?['latitude'] as num?)?.toDouble();
+      final lng = (_site?['longitude'] as num?)?.toDouble();
+      final radius = (_site?['radius'] as num?)?.toInt() ?? 200;
+      final geo = GeofenceService.evaluate(
+          pos: pos, siteLat: lat, siteLng: lng, radius: radius);
+      if (mounted) {
+        setState(() {
+          _geo = geo;
+          _locState = LocationState.ready;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _locState = LocationState.error;
+          _geo = null;
+          _gpsError = 'Waiting for GPS… couldn’t get a fix. Tap retry.';
+        });
+      }
+    }
+  }
+
+  Future<void> _openLocationSettings() async {
+    await Geolocator.openLocationSettings();
+    // The service stream + onResume also re-check; this covers the rest.
+    await Future.delayed(const Duration(milliseconds: 600));
+    await _refreshLocation();
+  }
+
+  Future<void> _openAppSettings() async {
+    await Geolocator.openAppSettings();
+    // Re-check happens automatically on resume (didChangeAppLifecycleState).
   }
 
   bool get _checkedInToday => _today != null;
@@ -248,21 +347,55 @@ class _EmployeeHomeScreenState extends State<EmployeeHomeScreen> {
 
   Widget _geofenceCard() {
     final geo = _geo;
+    final bool ready = _locState == LocationState.ready;
+    final bool hasCoords = geo?.hasSiteCoords ?? false;
     final bool inside = geo?.inside ?? false;
-    final bool unknown = geo == null || !geo.hasSiteCoords;
-    final Color color = unknown
-        ? AppTheme.warningColor
-        : (inside ? AppTheme.successColor : AppTheme.errorColor);
     final String siteName =
         (_site?['office_name'] ?? AppSession.instance.officeName).toString();
     final lat = (_site?['latitude'] as num?)?.toDouble();
     final lng = (_site?['longitude'] as num?)?.toDouble();
     final radius = (_site?['radius'] as num?)?.toInt();
-    final String statusText = unknown
-        ? (_gpsError != null
-            ? 'Location unavailable'
-            : 'No office assigned / geofence not set')
-        : (inside ? 'Inside geofence' : 'Outside assigned site');
+
+    // Header status + icon + accent colour, driven by the location state.
+    final (String statusText, IconData icon, Color color) = switch (_locState) {
+      LocationState.checking =>
+        ('Checking location…', Icons.location_searching, AppTheme.warningColor),
+      LocationState.serviceDisabled =>
+        ('Location (GPS) is off', Icons.location_disabled, AppTheme.errorColor),
+      LocationState.denied => (
+          'Location permission needed',
+          Icons.location_disabled,
+          AppTheme.warningColor
+        ),
+      LocationState.deniedForever => (
+          'Location permission blocked',
+          Icons.location_disabled,
+          AppTheme.errorColor
+        ),
+      LocationState.error =>
+        ('Location unavailable', Icons.location_off, AppTheme.warningColor),
+      LocationState.ready => !hasCoords
+          ? (
+              'Geofence not set for this site',
+              Icons.location_searching,
+              AppTheme.warningColor
+            )
+          : inside
+              ? ('Inside geofence', Icons.location_on, AppTheme.successColor)
+              : ('Outside assigned site', Icons.location_off, AppTheme.errorColor),
+    };
+
+    // Current-GPS line per state.
+    final String gpsText = switch (_locState) {
+      LocationState.checking => 'Checking…',
+      LocationState.serviceDisabled => 'Location (GPS) is turned off.',
+      LocationState.denied => 'Permission denied.',
+      LocationState.deniedForever => 'Blocked — enable in App Settings.',
+      LocationState.error => _gpsError ?? 'Waiting for GPS…',
+      LocationState.ready => geo == null
+          ? '—'
+          : '${geo.latitude.toStringAsFixed(5)}, ${geo.longitude.toStringAsFixed(5)}',
+    };
 
     return ThemedCard(
       backgroundColor: color.withValues(alpha: 0.10),
@@ -280,11 +413,12 @@ class _EmployeeHomeScreenState extends State<EmployeeHomeScreen> {
                 decoration: BoxDecoration(
                     color: color.withValues(alpha: 0.18),
                     shape: BoxShape.circle),
-                child: Icon(
-                    inside
-                        ? Icons.location_on
-                        : (unknown ? Icons.location_searching : Icons.location_off),
-                    color: color),
+                child: _locState == LocationState.checking
+                    ? const Padding(
+                        padding: EdgeInsets.all(10),
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Icon(icon, color: color),
               ),
               const SizedBox(width: AppTheme.spacingMedium),
               Expanded(
@@ -309,14 +443,9 @@ class _EmployeeHomeScreenState extends State<EmployeeHomeScreen> {
           _kv('Site Latitude', lat == null ? '—' : lat.toStringAsFixed(6)),
           _kv('Site Longitude', lng == null ? '—' : lng.toStringAsFixed(6)),
           _kv('Geofence Radius', radius == null ? '—' : '$radius m'),
-          _kv('Geofence Status', unknown ? '—' : geo.statusLabel),
-          _kv('Distance from Site', unknown ? '—' : geo.distanceLabel),
-          _kv(
-            'Current GPS',
-            geo == null
-                ? (_gpsError ?? '—')
-                : '${geo.latitude.toStringAsFixed(5)}, ${geo.longitude.toStringAsFixed(5)}',
-          ),
+          _kv('Geofence Status', ready && hasCoords ? geo!.statusLabel : '—'),
+          _kv('Distance from Site', ready && hasCoords ? geo!.distanceLabel : '—'),
+          _kv('Current GPS', gpsText),
         ],
       ),
     );
@@ -347,6 +476,9 @@ class _EmployeeHomeScreenState extends State<EmployeeHomeScreen> {
 
   Widget _actionButtons() {
     if (!_checkedInToday) {
+      // Clock In is gated on a real GPS fix. Until then, show the action that
+      // resolves whatever is blocking location (GPS off / permission / retry).
+      if (_locState != LocationState.ready) return _locActionButton();
       return ThemedButton(
         label: 'Clock In',
         icon: Icons.fingerprint,
@@ -385,6 +517,56 @@ class _EmployeeHomeScreenState extends State<EmployeeHomeScreen> {
         ],
       ),
     );
+  }
+
+  /// Shown in place of Clock In while location isn't ready — each state offers
+  /// the one tap that moves the user forward.
+  Widget _locActionButton() {
+    switch (_locState) {
+      case LocationState.checking:
+        return ThemedButton(
+          label: 'Checking location…',
+          icon: Icons.location_searching,
+          height: 56,
+          isEnabled: false,
+          isLoading: true,
+          onPressed: () {},
+        );
+      case LocationState.serviceDisabled:
+        return ThemedButton(
+          label: 'Enable Location (GPS)',
+          icon: Icons.my_location,
+          height: 56,
+          backgroundColor: AppTheme.warningColor,
+          onPressed: _openLocationSettings,
+        );
+      case LocationState.denied:
+        return ThemedButton(
+          label: 'Grant Location Permission',
+          icon: Icons.lock_open_outlined,
+          height: 56,
+          backgroundColor: AppTheme.primaryColor,
+          onPressed: _refreshLocation,
+        );
+      case LocationState.deniedForever:
+        return ThemedButton(
+          label: 'Open App Settings',
+          icon: Icons.settings_outlined,
+          height: 56,
+          backgroundColor: AppTheme.primaryColor,
+          onPressed: _openAppSettings,
+        );
+      case LocationState.error:
+        return ThemedButton(
+          label: 'Retry GPS',
+          icon: Icons.refresh,
+          height: 56,
+          backgroundColor: AppTheme.warningColor,
+          onPressed: _refreshLocation,
+        );
+      case LocationState.ready:
+        return const SizedBox.shrink();
+    }
   }
 
   // --- Today's status ------------------------------------------------------

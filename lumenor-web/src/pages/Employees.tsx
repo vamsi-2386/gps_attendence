@@ -1,9 +1,17 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { useAuth } from '../lib/auth'
 import { useAsync } from '../lib/useAsync'
-import { getEmployees, getOffices, registerEmployee, updateDesignation } from '../lib/data'
+import {
+  getEmployees,
+  getOffices,
+  registerEmployee,
+  updateDesignation,
+  uploadEmployeePhoto,
+  setEmployeePhoto,
+} from '../lib/data'
 import type { Employee, Office } from '../lib/types'
 import { PageHeader, Card, Spinner, ErrorState, EmptyState, Button } from '../components/ui'
+import { PhotoCapture } from '../components/PhotoCapture'
 
 const input =
   'w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20'
@@ -26,6 +34,8 @@ export default function Employees() {
   const [officeId, setOfficeId] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [photoFile, setPhotoFile] = useState<File | null>(null)
+  const [photoKey, setPhotoKey] = useState(0) // remount PhotoCapture to clear it
 
   // Per-row edited designations: employee_id -> value
   const [edits, setEdits] = useState<Record<number, string>>({})
@@ -59,8 +69,15 @@ export default function Employees() {
       mobile: mobile.trim() || undefined,
       email: email.trim() || undefined,
     })
+    // Best-effort photo upload (requires the 'employee-photos' Storage bucket).
+    let photoNote = ''
+    if (res.ok && photoFile && res.employeeId) {
+      const url = await uploadEmployeePhoto(code.trim(), photoFile)
+      if (url) await setEmployeePhoto(res.employeeId, url)
+      else photoNote = ' (photo not saved — create the "employee-photos" Storage bucket)'
+    }
     setBusy(false)
-    setMsg({ ok: res.ok, text: res.message })
+    setMsg({ ok: res.ok, text: res.message + (res.ok ? photoNote : '') })
     if (res.ok) {
       setCode('')
       setName('')
@@ -69,6 +86,8 @@ export default function Employees() {
       setMobile('')
       setEmail('')
       setOfficeId('')
+      setPhotoFile(null)
+      setPhotoKey((k) => k + 1)
       setEdits({})
       reload()
     }
@@ -183,6 +202,7 @@ export default function Employees() {
                 </select>
               </div>
             </div>
+            <PhotoCapture key={photoKey} onChange={(f) => setPhotoFile(f)} />
             {msg && (
               <p className={`text-sm ${msg.ok ? 'text-emerald-600' : 'text-rose-600'}`}>{msg.text}</p>
             )}
@@ -217,6 +237,7 @@ export default function Employees() {
             <table className="w-full min-w-[720px] text-left text-sm">
               <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                 <tr>
+                  <th className="px-4 py-3">Photo</th>
                   <th className="px-4 py-3">Code</th>
                   <th className="px-4 py-3">Name</th>
                   <th className="px-4 py-3">Designation</th>
@@ -232,6 +253,19 @@ export default function Employees() {
                       : emp.designation ?? ''
                   return (
                     <tr key={emp.employee_id} className="hover:bg-slate-50">
+                      <td className="px-4 py-3">
+                        {emp.photo_url ? (
+                          <img
+                            src={emp.photo_url}
+                            alt={emp.name}
+                            className="h-10 w-10 rounded-full border border-slate-200 object-cover"
+                          />
+                        ) : (
+                          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-light text-sm font-bold text-brand">
+                            {emp.name?.trim()?.charAt(0)?.toUpperCase() ?? '?'}
+                          </span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 font-mono text-xs text-slate-600">{emp.employee_code}</td>
                       <td className="px-4 py-3 font-semibold text-slate-800">{emp.name}</td>
                       <td className="px-4 py-3">

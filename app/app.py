@@ -9,7 +9,16 @@ from PIL import Image
 
 from src.screens.home_screen import home_screen
 from src.screens.company_screen import company_screen
-from src.ui.base_layout import desktop_only_guard
+
+# Defensive: an optional UI helper must never take down the whole app. Streamlit
+# Cloud sometimes re-runs the script against a stale cached module after a
+# redeploy; if the symbol is briefly missing we fall back to a no-op so the app
+# still boots (a Reboot then loads the real one).
+try:
+    from src.ui.base_layout import desktop_only_guard
+except Exception:
+    def desktop_only_guard():
+        return None
 
 # Lumenor logo used as the browser tab / app icon. Falls back to an emoji if
 # the asset is missing so the app never fails to boot.

@@ -3,6 +3,7 @@ import { useAuth } from '../lib/auth'
 import { useAsync } from '../lib/useAsync'
 import { getOffices, createOffice, deleteOffice } from '../lib/data'
 import { PageHeader, Card, Spinner, ErrorState, EmptyState, Button } from '../components/ui'
+import { OfficeMap } from '../components/OfficeMap'
 
 export default function Offices() {
   const { session } = useAuth()
@@ -141,30 +142,19 @@ export default function Offices() {
               className={input}
             />
             <Button type="button" variant="outline" onClick={useMyLocation} disabled={locating}>
-              {locating ? 'Locating…' : 'Use my location'}
+              {locating ? 'Locating…' : '📍 Use my location'}
             </Button>
 
-            {hasCoords && (
-              <iframe
-                title="Site location preview"
-                className="w-full rounded-xl border border-slate-200"
-                style={{ height: 260 }}
-                src={
-                  'https://www.openstreetmap.org/export/embed.html?bbox=' +
-                  (lngNum - 0.01) +
-                  '%2C' +
-                  (latNum - 0.01) +
-                  '%2C' +
-                  (lngNum + 0.01) +
-                  '%2C' +
-                  (latNum + 0.01) +
-                  '&layer=mapnik&marker=' +
-                  latNum +
-                  '%2C' +
-                  lngNum
-                }
-              />
-            )}
+            <p className="text-xs text-slate-500">Click on the map to drop the office pin; the circle previews the geofence.</p>
+            <OfficeMap
+              lat={latNum}
+              lng={lngNum}
+              radius={parseFloat(radius) || 0}
+              onPick={(la, lo) => {
+                setLat(la.toFixed(6))
+                setLng(lo.toFixed(6))
+              }}
+            />
 
             {msg && (
               <p className={`text-sm ${msg.ok ? 'text-emerald-600' : 'text-rose-600'}`}>{msg.text}</p>

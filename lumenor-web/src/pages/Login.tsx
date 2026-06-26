@@ -32,8 +32,8 @@ export default function Login() {
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-brand-light via-white to-slate-100 p-4">
       <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-8 shadow-lg">
         <div className="mb-6 flex flex-col items-center text-center">
-          <img src="/lumenor.png" alt="Lumenor" className="mb-3 h-14 w-14 rounded-xl" />
-          <h1 className="text-xl font-bold text-slate-900">Lumenor HRMS</h1>
+          <img src="/lumenor-logo.svg" alt="Lumenor" className="mb-3 h-9" />
+          <h1 className="text-xl font-bold text-slate-900">HRMS Admin</h1>
           <p className="mt-1 text-sm text-slate-500">Company • Manager • HR sign in</p>
         </div>
         <form onSubmit={submit} className="space-y-4">

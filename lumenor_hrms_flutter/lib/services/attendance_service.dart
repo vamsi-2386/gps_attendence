@@ -1,3 +1,5 @@
+import 'package:geolocator/geolocator.dart';
+
 import 'app_session.dart';
 import 'geofence_service.dart';
 import 'hrms_repository.dart';
@@ -47,10 +49,47 @@ class AttendanceService {
         );
       }
 
-      // 2. Real device GPS (no fallback to fake coordinates).
-      final pos = await GeofenceService.currentPosition();
+      // 2. Robust GPS validation — a safety layer on top of the dashboard's
+      // gate so attendance can NEVER be saved without a verified location.
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        return const CheckInOutcome(
+          CheckInStatus.error,
+          'Location (GPS) is off. Enable GPS and try again.',
+        );
+      }
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.deniedForever) {
+        return const CheckInOutcome(
+          CheckInStatus.error,
+          'Location permission is blocked. Enable it in App Settings.',
+        );
+      }
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.unableToDetermine) {
+        return const CheckInOutcome(
+          CheckInStatus.error,
+          'Location permission denied. Grant it to clock in.',
+        );
+      }
 
-      // 3. Geofence = the office assigned to this employee by the admin.
+      // 3. Obtain a valid real fix (no fallback to fake coordinates).
+      final Position pos;
+      try {
+        pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 15),
+        );
+      } catch (_) {
+        return const CheckInOutcome(
+          CheckInStatus.error,
+          'Couldn’t get a GPS fix. Move to open sky and try again.',
+        );
+      }
+
+      // 4. Geofence verification against the office assigned by the admin.
       final geo = GeofenceService.evaluate(
         pos: pos,
         siteLat: session.officeLat,
