@@ -18,7 +18,13 @@ body, .stApp, [data-testid="stAppViewContainer"] {
 
 /* ── Hide Streamlit chrome ── */
 #MainMenu, footer, header { visibility: hidden; }
-.block-container { padding-top: 1.5rem !important; max-width: 1100px !important; }
+/* Adaptive width: fills large screens, breathes on small ones (no hard cap). */
+.block-container {
+    padding-top: 1.5rem !important;
+    max-width: min(1400px, 96vw) !important;
+    padding-left: clamp(1rem, 3vw, 3.5rem) !important;
+    padding-right: clamp(1rem, 3vw, 3.5rem) !important;
+}
 
 /* ── Headings ── */
 h1 {
@@ -144,6 +150,21 @@ hr { border-color: rgba(88, 101, 242, 0.12) !important; }
     border-radius: 12px !important;
     border-left-width: 4px !important;
 }
+
+/* ── Responsive: adapt to any screen size ── */
+@media (max-width: 1200px) {
+    .block-container { max-width: 98vw !important; }
+}
+@media (max-width: 992px) {
+    h1 { font-size: 2.2rem !important; }
+    h2 { font-size: 1.4rem !important; }
+    [data-testid="stTabs"] [data-baseweb="tab"] {
+        font-size: 0.78rem !important;
+        padding: 6px 10px !important;
+    }
+    [data-testid="stMetric"] { padding: 0.75rem 0.9rem !important; }
+}
+img { max-width: 100% !important; height: auto !important; }
 """
 
 
@@ -192,3 +213,48 @@ def style_background_dashboard():
 def style_base_layout():
     # No-op: styles are now injected by the background functions above
     pass
+
+
+def desktop_only_guard():
+    """Show a full-screen 'desktop only' notice on phones/small screens.
+
+    The admin dashboard is data-dense and meant for desktop, so on viewports
+    <= 820px we render an opaque fixed overlay on top of the app. Managers/HR
+    use the mobile app instead. Pure CSS (no JS) so it's robust and instant.
+    """
+    st.markdown(
+        """
+        <style>
+        #lumenor-desktop-only { display: none; }
+        @media (max-width: 820px) {
+            #lumenor-desktop-only {
+                display: flex !important;
+                position: fixed; inset: 0; z-index: 2147483647;
+                background: linear-gradient(160deg, #0f0c29, #302b63, #24243e);
+                color: #fff; flex-direction: column;
+                align-items: center; justify-content: center;
+                text-align: center; padding: 28px;
+                font-family: 'Inter', sans-serif;
+            }
+        }
+        #lumenor-desktop-only .ldo-emoji { font-size: 64px; margin-bottom: 14px; }
+        #lumenor-desktop-only h2 {
+            font-family: 'Inter', sans-serif !important;
+            font-size: 1.5rem !important; margin: 0 0 10px !important;
+        }
+        #lumenor-desktop-only p {
+            font-size: 0.95rem; opacity: 0.85; max-width: 340px;
+            line-height: 1.55; margin: 0;
+        }
+        </style>
+        <div id="lumenor-desktop-only">
+            <div class="ldo-emoji">🖥️</div>
+            <h2>Desktop only</h2>
+            <p>The Lumenor HRMS admin dashboard is optimised for desktop.
+            Please open it on a laptop or computer.</p>
+            <p style="margin-top: 12px; opacity: 0.7;">On the move? Managers &amp; HR
+            can use the Lumenor HRMS mobile app.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )

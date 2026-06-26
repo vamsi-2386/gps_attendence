@@ -1,39 +1,94 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+
 import '../../config/app_theme.dart';
+import '../../services/hrms_repository.dart';
 import '../../widgets/themed_text.dart';
 import '../../widgets/themed_button.dart';
 import '../../widgets/themed_card.dart';
 
 /// Employee Detail Screen
 ///
-/// Admin-facing employee profile showing biometric health, quick stats and
-/// re-enrollment actions. Self-contained with mock HRMS data so it renders
-/// standalone for testing.
-class EmployeeDetailScreen extends StatelessWidget {
+/// Admin-facing employee profile. All figures are REAL — derived from the
+/// employee's own attendance and leave rows in Supabase (no fabricated
+/// biometric/attendance defaults).
+class EmployeeDetailScreen extends StatefulWidget {
+  final int employeeId;
   final String name;
   final String designation;
   final String employeeCode;
-  final double avgFaceScore;
-  final int totalFailures;
-  final String lastEnrollment;
-  final double attendanceRate;
-  final int leavesTaken;
 
   const EmployeeDetailScreen({
     super.key,
-    this.name = 'Priya Sharma',
-    this.designation = 'Senior Site Engineer',
-    this.employeeCode = 'EMP-0481',
-    this.avgFaceScore = 0.89,
-    this.totalFailures = 3,
-    this.lastEnrollment = '12 Mar 2026',
-    this.attendanceRate = 0.94,
-    this.leavesTaken = 6,
+    required this.employeeId,
+    required this.name,
+    required this.designation,
+    required this.employeeCode,
   });
 
+  @override
+  State<EmployeeDetailScreen> createState() => _EmployeeDetailScreenState();
+}
+
+class _EmployeeDetailScreenState extends State<EmployeeDetailScreen> {
+  static final DateFormat _dayFmt = DateFormat('dd MMM yyyy');
+
+  late Future<_EmployeeStats> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _loadStats();
+  }
+
+  Future<_EmployeeStats> _loadStats() async {
+    final repo = HrmsRepository.instance;
+    final attendance = await repo.attendanceLogs(widget.employeeId);
+    final leaves = await repo.employeeLeaves(widget.employeeId);
+
+    var present = 0, flagged = 0, pendingLeaves = 0, approvedLeaveDays = 0;
+    DateTime? lastCheckIn;
+
+    for (final a in attendance) {
+      final status = (a['attendance_status'] ?? a['location_status'] ?? '')
+          .toString();
+      final isPresent = a['is_present'] == true || status == 'Present';
+      if (isPresent) present++;
+      if (status == 'Flagged') flagged++;
+      final t = DateTime.tryParse('${a['check_in_time'] ?? a['timestamp']}')
+          ?.toLocal();
+      if (t != null && (lastCheckIn == null || t.isAfter(lastCheckIn))) {
+        lastCheckIn = t;
+      }
+    }
+
+    for (final l in leaves) {
+      final st = (l['status'] ?? '').toString();
+      if (st == 'Pending') pendingLeaves++;
+      if (st == 'Approved') {
+        final s = DateTime.tryParse('${l['start_date']}');
+        final e = DateTime.tryParse('${l['end_date']}');
+        if (s != null && e != null) approvedLeaveDays += e.difference(s).inDays + 1;
+      }
+    }
+
+    final totalCheckIns = attendance.length;
+    final rate = totalCheckIns == 0 ? 0.0 : present / totalCheckIns;
+
+    return _EmployeeStats(
+      totalCheckIns: totalCheckIns,
+      present: present,
+      flagged: flagged,
+      attendanceRate: rate,
+      pendingLeaves: pendingLeaves,
+      approvedLeaveDays: approvedLeaveDays,
+      lastCheckIn: lastCheckIn,
+    );
+  }
+
   String get _initials {
-    final parts = name.trim().split(RegExp(r'\s+'));
-    if (parts.isEmpty) return '?';
+    final parts = widget.name.trim().split(RegExp(r'\s+'));
+    if (parts.isEmpty || parts.first.isEmpty) return '?';
     if (parts.length == 1) return parts.first.characters.first.toUpperCase();
     return (parts.first.characters.first + parts.last.characters.first)
         .toUpperCase();
@@ -43,34 +98,50 @@ class EmployeeDetailScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.darkBackground,
-      appBar: AppBar(
-        title: const HeadingMediumText('Employee Details'),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(AppTheme.spacingMedium),
-        children: [
-          _profileHeader(),
-          const SizedBox(height: AppTheme.spacingLarge),
-          _biometricHealthCard(),
-          const SizedBox(height: AppTheme.spacingMedium),
-          _quickStats(),
-          const SizedBox(height: AppTheme.spacingLarge),
-          ThemedButton(
-            label: 'Generate re-enrollment link',
-            icon: Icons.link,
-            backgroundColor: AppTheme.infoColor,
-            onPressed: () => _showReenrollLink(context),
-          ),
-          const SizedBox(height: AppTheme.spacingMedium),
-          ThemedOutlineButton(
-            label: 'Back to dashboard',
-            icon: Icons.arrow_back,
-            borderColor: AppTheme.infoColor,
-            textColor: AppTheme.infoColor,
-            onPressed: () => Navigator.pop(context),
-          ),
-          const SizedBox(height: AppTheme.spacingLarge),
-        ],
+      appBar: AppBar(title: const HeadingMediumText('Employee Details')),
+      body: FutureBuilder<_EmployeeStats>(
+        future: _future,
+        builder: (context, snap) {
+          final stats = snap.data;
+          return ListView(
+            padding: const EdgeInsets.all(AppTheme.spacingMedium),
+            children: [
+              _profileHeader(),
+              const SizedBox(height: AppTheme.spacingLarge),
+              if (snap.connectionState == ConnectionState.waiting)
+                const Padding(
+                  padding: EdgeInsets.all(AppTheme.spacingLarge),
+                  child: Center(
+                    child: CircularProgressIndicator(
+                        color: AppTheme.primaryColor),
+                  ),
+                )
+              else if (snap.hasError || stats == null)
+                _errorCard()
+              else ...[
+                _attendanceCard(stats),
+                const SizedBox(height: AppTheme.spacingMedium),
+                _quickStats(stats),
+              ],
+              const SizedBox(height: AppTheme.spacingLarge),
+              ThemedButton(
+                label: 'Generate re-enrollment link',
+                icon: Icons.link,
+                backgroundColor: AppTheme.infoColor,
+                onPressed: () => _showReenrollLink(context),
+              ),
+              const SizedBox(height: AppTheme.spacingMedium),
+              ThemedOutlineButton(
+                label: 'Back to dashboard',
+                icon: Icons.arrow_back,
+                borderColor: AppTheme.infoColor,
+                textColor: AppTheme.infoColor,
+                onPressed: () => Navigator.pop(context),
+              ),
+              const SizedBox(height: AppTheme.spacingLarge),
+            ],
+          );
+        },
       ),
     );
   }
@@ -95,9 +166,9 @@ class EmployeeDetailScreen extends StatelessWidget {
             child: HeadingLargeText(_initials, color: AppTheme.infoColor),
           ),
           const SizedBox(height: AppTheme.spacingMedium),
-          HeadingLargeText(name, textAlign: TextAlign.center),
+          HeadingLargeText(widget.name, textAlign: TextAlign.center),
           const SizedBox(height: AppTheme.spacingXSmall),
-          BodyMediumText(designation, color: AppTheme.textSecondary),
+          BodyMediumText(widget.designation, color: AppTheme.textSecondary),
           const SizedBox(height: AppTheme.spacingSmall),
           Container(
             padding: const EdgeInsets.symmetric(
@@ -109,14 +180,14 @@ class EmployeeDetailScreen extends StatelessWidget {
               borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
               border: Border.all(color: AppTheme.borders, width: 0.5),
             ),
-            child: LabelText(employeeCode, color: AppTheme.textPrimary),
+            child: LabelText(widget.employeeCode, color: AppTheme.textPrimary),
           ),
         ],
       ),
     );
   }
 
-  Widget _biometricHealthCard() {
+  Widget _attendanceCard(_EmployeeStats s) {
     return ThemedCard(
       backgroundColor: AppTheme.darkElements,
       borderColor: AppTheme.borders,
@@ -124,22 +195,22 @@ class EmployeeDetailScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: const [
-              Icon(Icons.face_retouching_natural,
+          const Row(
+            children: [
+              Icon(Icons.fact_check_outlined,
                   color: AppTheme.infoColor, size: 20),
               SizedBox(width: AppTheme.spacingSmall),
-              HeadingMediumText('Biometric Health'),
+              HeadingMediumText('Attendance Record'),
             ],
           ),
           const SizedBox(height: AppTheme.spacingMedium),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const BodyMediumText('Average face match score'),
+              const BodyMediumText('Present rate'),
               BodyLargeText(
-                avgFaceScore.toStringAsFixed(2),
-                color: _scoreColor(avgFaceScore),
+                '${(s.attendanceRate * 100).round()}%',
+                color: _scoreColor(s.attendanceRate),
                 fontWeight: FontWeight.bold,
               ),
             ],
@@ -148,30 +219,38 @@ class EmployeeDetailScreen extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
             child: LinearProgressIndicator(
-              value: avgFaceScore.clamp(0.0, 1.0),
+              value: s.attendanceRate.clamp(0.0, 1.0),
               minHeight: 8,
               backgroundColor: AppTheme.darkBackground,
               valueColor:
-                  AlwaysStoppedAnimation<Color>(_scoreColor(avgFaceScore)),
+                  AlwaysStoppedAnimation<Color>(_scoreColor(s.attendanceRate)),
             ),
           ),
           const SizedBox(height: AppTheme.spacingMedium),
           const Divider(color: AppTheme.borders, height: 1),
           const SizedBox(height: AppTheme.spacingMedium),
           _detailRow(
-            icon: Icons.error_outline,
-            iconColor: totalFailures > 0
-                ? AppTheme.warningColor
-                : AppTheme.successColor,
-            label: 'Total verification failures',
-            value: '$totalFailures',
+            icon: Icons.how_to_reg,
+            iconColor: AppTheme.successColor,
+            label: 'Present check-ins',
+            value: '${s.present} / ${s.totalCheckIns}',
           ),
           const SizedBox(height: AppTheme.spacingSmall),
           _detailRow(
-            icon: Icons.event_available,
+            icon: Icons.gpp_maybe,
+            iconColor:
+                s.flagged > 0 ? AppTheme.warningColor : AppTheme.successColor,
+            label: 'Flagged (pending review)',
+            value: '${s.flagged}',
+          ),
+          const SizedBox(height: AppTheme.spacingSmall),
+          _detailRow(
+            icon: Icons.schedule,
             iconColor: AppTheme.infoColor,
-            label: 'Last enrollment',
-            value: lastEnrollment,
+            label: 'Last check-in',
+            value: s.lastCheckIn != null
+                ? _dayFmt.format(s.lastCheckIn!)
+                : 'No check-ins yet',
           ),
         ],
       ),
@@ -194,24 +273,24 @@ class EmployeeDetailScreen extends StatelessWidget {
     );
   }
 
-  Widget _quickStats() {
+  Widget _quickStats(_EmployeeStats s) {
     return Row(
       children: [
         Expanded(
           child: _statTile(
-            icon: Icons.check_circle_outline,
-            accent: AppTheme.successColor,
-            value: '${(attendanceRate * 100).round()}%',
-            label: 'Attendance rate',
+            icon: Icons.beach_access,
+            accent: AppTheme.infoColor,
+            value: '${s.approvedLeaveDays}',
+            label: 'Approved leave days',
           ),
         ),
         const SizedBox(width: AppTheme.spacingMedium),
         Expanded(
           child: _statTile(
-            icon: Icons.beach_access,
-            accent: AppTheme.infoColor,
-            value: '$leavesTaken',
-            label: 'Leaves taken',
+            icon: Icons.hourglass_top,
+            accent: AppTheme.warningColor,
+            value: '${s.pendingLeaves}',
+            label: 'Pending leave requests',
           ),
         ),
       ],
@@ -241,6 +320,26 @@ class EmployeeDetailScreen extends StatelessWidget {
     );
   }
 
+  Widget _errorCard() {
+    return ThemedCard(
+      backgroundColor: AppTheme.darkElements,
+      borderColor: AppTheme.borders,
+      borderWidth: 0.5,
+      child: const Row(
+        children: [
+          Icon(Icons.cloud_off, color: AppTheme.textSecondary),
+          SizedBox(width: AppTheme.spacingSmall),
+          Expanded(
+            child: BodyMediumText(
+              'Couldn’t load this employee’s records. Check your connection.',
+              color: AppTheme.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Color _scoreColor(double score) {
     if (score >= 0.75) return AppTheme.successColor;
     if (score >= 0.5) return AppTheme.warningColor;
@@ -248,8 +347,7 @@ class EmployeeDetailScreen extends StatelessWidget {
   }
 
   void _showReenrollLink(BuildContext context) {
-    final link =
-        'https://hrms.lumenor.in/reenroll/$employeeCode?t=a1b2c3d4';
+    final link = 'https://hrms.lumenor.in/reenroll/${widget.employeeCode}';
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
@@ -271,4 +369,25 @@ class EmployeeDetailScreen extends StatelessWidget {
         ),
       );
   }
+}
+
+/// Real, computed stats for one employee.
+class _EmployeeStats {
+  final int totalCheckIns;
+  final int present;
+  final int flagged;
+  final double attendanceRate;
+  final int pendingLeaves;
+  final int approvedLeaveDays;
+  final DateTime? lastCheckIn;
+
+  const _EmployeeStats({
+    required this.totalCheckIns,
+    required this.present,
+    required this.flagged,
+    required this.attendanceRate,
+    required this.pendingLeaves,
+    required this.approvedLeaveDays,
+    required this.lastCheckIn,
+  });
 }

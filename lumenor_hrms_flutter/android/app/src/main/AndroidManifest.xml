@@ -14,7 +14,7 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <application
-        android:label="lumenor_hrms_flutter"
+        android:label="Lumenor HRMS"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <!-- Bundle the ML Kit face model so detection works on first launch (offline) -->

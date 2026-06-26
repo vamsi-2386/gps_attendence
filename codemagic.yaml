@@ -1,0 +1,76 @@
+# ============================================================================
+# Codemagic CI/CD — builds the Lumenor HRMS Flutter app for Android AND iOS.
+# ----------------------------------------------------------------------------
+# iOS cannot be built on Windows; Codemagic runs macOS build machines, so this
+# lets you produce a signed .ipa with no Mac of your own.
+#
+# ONE-TIME SETUP (in the Codemagic web UI — https://codemagic.io):
+#   1. Connect this GitHub repo (vamsi-2386/gps_attendence).
+#   2. For iOS: Settings → Code signing identities → connect your Apple
+#      Developer account (App Store Connect API key), then set the workflow's
+#      bundle identifier to the one in ios/Runner.xcodeproj
+#      (default: com.example.lumenorHrmsFlutter — change to your own, e.g.
+#      in.lumenor.hrms, in Xcode/project.pbxproj PRODUCT_BUNDLE_IDENTIFIER).
+#   3. For Android release signing: upload your keystore (the same
+#      lumenor-release.jks) under Settings → Code signing identities, or build
+#      a debug-signed APK by removing the keystore reference.
+#   4. (Optional) add an email/Slack publishing target below.
+#
+# Then push to GitHub and start a build from the Codemagic dashboard.
+# ============================================================================
+
+workflows:
+  android-release:
+    name: Lumenor HRMS — Android
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: stable
+      java: 17
+    scripts:
+      - name: Flutter pub get
+        script: cd lumenor_hrms_flutter && flutter pub get
+      - name: Build release APK
+        script: cd lumenor_hrms_flutter && flutter build apk --release
+      - name: Build App Bundle (for Play Store)
+        script: cd lumenor_hrms_flutter && flutter build appbundle --release
+    artifacts:
+      - lumenor_hrms_flutter/build/**/outputs/**/*.apk
+      - lumenor_hrms_flutter/build/**/outputs/**/*.aab
+    # publishing:
+    #   email:
+    #     recipients:
+    #       - varahalababu@lumenor.in
+
+  ios-release:
+    name: Lumenor HRMS — iOS
+    instance_type: mac_mini_m2
+    max_build_duration: 90
+    integrations:
+      # Name of the App Store Connect API key you add in the Codemagic UI.
+      app_store_connect: CodemagicAppStoreKey
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      ios_signing:
+        # 'app_store' for TestFlight/App Store; use 'development' or 'ad_hoc'
+        # for direct-install test builds.
+        distribution_type: app_store
+        bundle_identifier: com.example.lumenorHrmsFlutter
+    scripts:
+      - name: Flutter pub get
+        script: cd lumenor_hrms_flutter && flutter pub get
+      - name: Install CocoaPods dependencies
+        script: cd lumenor_hrms_flutter/ios && pod install
+      - name: Flutter build ipa
+        script: |
+          cd lumenor_hrms_flutter
+          flutter build ipa --release \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - lumenor_hrms_flutter/build/ios/ipa/*.ipa
+    # publishing:
+    #   app_store_connect:
+    #     auth: integration
+    #     submit_to_testflight: true

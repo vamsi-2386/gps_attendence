@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../config/app_theme.dart';
@@ -34,6 +36,7 @@ class _EmployeeHomeScreenState extends State<EmployeeHomeScreen> {
   Map<String, dynamic>? _site; // assigned site (with geofence)
   GeofenceResult? _geo; // live GPS vs site
   String? _gpsError;
+  Timer? _ticker; // drives the live worked-hours timer while clocked in
 
   @override
   void initState() {
@@ -41,9 +44,35 @@ class _EmployeeHomeScreenState extends State<EmployeeHomeScreen> {
     _loadDashboard();
   }
 
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
   String get _firstName {
     final parts = AppSession.instance.employeeName.trim().split(RegExp(r'\s+'));
     return parts.isEmpty || parts.first.isEmpty ? '' : parts.first;
+  }
+
+  /// Time-based greeting from the device's LOCAL clock.
+  String get _greeting {
+    final h = DateTime.now().hour; // local
+    if (h >= 5 && h < 12) return 'Good Morning';
+    if (h >= 12 && h < 17) return 'Good Afternoon';
+    if (h >= 17 && h < 21) return 'Good Evening';
+    return 'Good Night'; // 21:00–04:59
+  }
+
+  /// Start/stop the per-minute ticker so the worked timer is live only while
+  /// the employee is clocked in and not yet clocked out.
+  void _syncTicker() {
+    _ticker?.cancel();
+    if (_checkedInToday && !_clockedOut) {
+      _ticker = Timer.periodic(const Duration(seconds: 30), (_) {
+        if (mounted) setState(() {}); // re-render the live worked label
+      });
+    }
   }
 
   String _formatTime(dynamic iso) {
@@ -81,6 +110,7 @@ class _EmployeeHomeScreenState extends State<EmployeeHomeScreen> {
       _gpsError = 'Could not load dashboard: $e';
     } finally {
       if (mounted) setState(() => _loadingDash = false);
+      _syncTicker(); // start/stop the live worked timer based on today's state
     }
   }
 
@@ -186,8 +216,10 @@ class _EmployeeHomeScreenState extends State<EmployeeHomeScreen> {
       child: ListView(
         padding: const EdgeInsets.all(AppTheme.spacingMedium),
         children: [
-          BodyLargeText('Good morning, $_firstName',
-              color: AppTheme.textSecondary),
+          BodyLargeText(
+            _firstName.isEmpty ? _greeting : '$_greeting, $_firstName',
+            color: AppTheme.textSecondary,
+          ),
           const SizedBox(height: AppTheme.spacingXSmall),
           HeadingLargeText(AppSession.instance.employeeName),
           BodySmallText(AppSession.instance.designation,
@@ -296,8 +328,11 @@ class _EmployeeHomeScreenState extends State<EmployeeHomeScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ~38% of a 360dp screen for the label, leaving the rest for the
+          // value (which wraps via Expanded) — avoids cramped values on small
+          // phones while keeping the key/value columns aligned.
           SizedBox(
-            width: 150,
+            width: 130,
             child: BodySmallText(k, color: AppTheme.textSecondary),
           ),
           Expanded(
@@ -358,23 +393,21 @@ class _EmployeeHomeScreenState extends State<EmployeeHomeScreen> {
     final log = _today;
     final bool hasLog = log != null;
     final String status = hasLog
-        ? (log['attendance_status'] ?? (log['is_present'] == true ? 'Present' : 'Absent'))
+        ? (log['attendance_status'] ??
+                (log['is_present'] == true ? 'Present' : 'Absent'))
             .toString()
-        : 'Not checked in';
-    final Color statusColor = !hasLog
-        ? AppTheme.textSecondary
-        : (status == 'Present'
-            ? AppTheme.successColor
-            : (status == 'Flagged'
-                ? AppTheme.warningColor
-                : AppTheme.errorColor));
+        : 'Not Checked In';
+    final Color statusColor = _statusColor(status);
 
     final checkIn =
-        hasLog ? _formatTime(log['check_in_time'] ?? log['timestamp']) : '--:--';
+        hasLog ? _formatTime(log['check_in_time'] ?? log['timestamp']) : '--';
     final outVal = hasLog ? (log['check_out_time'] ?? log['checkout_time']) : null;
-    final checkOut =
-        (outVal != null && '$outVal'.isNotEmpty) ? _formatTime(outVal) : '--:--';
+    final bool clockedOut = outVal != null && '$outVal'.isNotEmpty;
+    final checkOut = clockedOut ? _formatTime(outVal) : '--';
     final worked = _workedLabel(log);
+    final bool live = _checkedInToday && !_clockedOut;
+    final String dateLabel =
+        DateFormat('EEE, dd MMM yyyy').format(DateTime.now());
 
     return ThemedCard(
       backgroundColor: AppTheme.darkElements,
@@ -388,27 +421,40 @@ class _EmployeeHomeScreenState extends State<EmployeeHomeScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const HeadingMediumText("Today's Status"),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: AppTheme.spacingSmall, vertical: 2),
-                decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-                ),
-                child: BodySmallText(status, color: statusColor),
-              ),
+              _statusChip(status, statusColor),
+            ],
+          ),
+          const SizedBox(height: AppTheme.spacingXSmall),
+          Row(
+            children: [
+              const Icon(Icons.calendar_today_outlined,
+                  size: 14, color: AppTheme.textSecondary),
+              const SizedBox(width: AppTheme.spacingXSmall),
+              BodySmallText(dateLabel, color: AppTheme.textSecondary),
             ],
           ),
           const SizedBox(height: AppTheme.spacingMedium),
+          const Divider(color: AppTheme.borders, height: 1),
+          const SizedBox(height: AppTheme.spacingMedium),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _statusItem('Check In', checkIn, AppTheme.successColor),
-              Container(width: 1, height: 40, color: AppTheme.borders),
-              _statusItem('Check Out', checkOut,
-                  checkOut == '--:--' ? AppTheme.textSecondary : AppTheme.errorColor),
-              Container(width: 1, height: 40, color: AppTheme.borders),
-              _statusItem('Worked', worked, AppTheme.textPrimary),
+              // Flexible so the three columns shrink instead of overflowing on
+              // narrow phones; dividers stay a fixed hairline.
+              Flexible(
+                child: _statusItem('Check In', checkIn, AppTheme.successColor),
+              ),
+              Container(width: 1, height: 44, color: AppTheme.borders),
+              Flexible(
+                child: _statusItem('Check Out', checkOut,
+                    clockedOut ? AppTheme.errorColor : AppTheme.textSecondary),
+              ),
+              Container(width: 1, height: 44, color: AppTheme.borders),
+              Flexible(
+                child: _statusItem('Worked', worked, AppTheme.textPrimary,
+                    bold: true, live: live),
+              ),
             ],
           ),
         ],
@@ -416,30 +462,92 @@ class _EmployeeHomeScreenState extends State<EmployeeHomeScreen> {
     );
   }
 
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'Present':
+        return AppTheme.successColor; // green
+      case 'Flagged':
+        return AppTheme.warningColor; // orange
+      case 'Absent':
+      case 'Rejected':
+        return AppTheme.errorColor; // red
+      default:
+        return AppTheme.textSecondary; // Not Checked In
+    }
+  }
+
+  Widget _statusChip(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppTheme.spacingSmall, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: AppTheme.spacingXSmall),
+          BodySmallText(label, color: color, fontWeight: FontWeight.w600),
+        ],
+      ),
+    );
+  }
+
+  /// Worked time. Before clock-in: 0h 00m. While clocked in (no clock-out):
+  /// LIVE = now − check-in (re-rendered by the ticker). After clock-out:
+  /// stored worked_hours, else check-out − check-in. All UTC-consistent.
   String _workedLabel(Map<String, dynamic>? log) {
     if (log == null) return '0h 00m';
-    final wh = (log['worked_hours'] as num?)?.toDouble();
-    if (wh != null && wh > 0) {
-      final h = wh.floor();
-      final m = ((wh - h) * 60).round();
-      return '${h}h ${m.toString().padLeft(2, '0')}m';
-    }
-    final inTs =
-        DateTime.tryParse('${log['check_in_time'] ?? log['timestamp']}')?.toUtc();
-    final outTs =
-        DateTime.tryParse('${log['check_out_time'] ?? log['checkout_time']}')
+    final checkIn =
+        DateTime.tryParse('${log['check_in_time'] ?? log['timestamp'] ?? ''}')
             ?.toUtc();
-    if (inTs == null || outTs == null || !outTs.isAfter(inTs)) return '0h 00m';
-    final d = outTs.difference(inTs);
+    if (checkIn == null) return '0h 00m';
+    final outIso = '${log['check_out_time'] ?? log['checkout_time'] ?? ''}';
+    final checkOut = outIso.isEmpty ? null : DateTime.tryParse(outIso)?.toUtc();
+
+    Duration d;
+    if (checkOut != null) {
+      final wh = (log['worked_hours'] as num?)?.toDouble();
+      d = (wh != null && wh > 0)
+          ? Duration(seconds: (wh * 3600).round())
+          : checkOut.difference(checkIn);
+    } else {
+      d = DateTime.now().toUtc().difference(checkIn); // live
+    }
+    if (d.isNegative) d = Duration.zero;
     return '${d.inHours}h ${(d.inMinutes % 60).toString().padLeft(2, '0')}m';
   }
 
-  Widget _statusItem(String label, String value, Color valueColor) {
+  Widget _statusItem(String label, String value, Color valueColor,
+      {bool bold = false, bool live = false}) {
     return Column(
       children: [
-        BodySmallText(label, color: AppTheme.textSecondary),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            BodySmallText(label, color: AppTheme.textSecondary),
+            if (live) ...[
+              const SizedBox(width: 4),
+              Container(
+                width: 6,
+                height: 6,
+                decoration: const BoxDecoration(
+                    color: AppTheme.successColor, shape: BoxShape.circle),
+              ),
+            ],
+          ],
+        ),
         const SizedBox(height: AppTheme.spacingXSmall),
-        HeadingMediumText(value, color: valueColor),
+        HeadingMediumText(value,
+            color: valueColor,
+            fontWeight: bold ? FontWeight.bold : FontWeight.w600),
       ],
     );
   }

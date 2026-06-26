@@ -5,7 +5,7 @@ from src.ui.base_layout import style_background_dashboard, style_base_layout
 from src.components.header import header_dashboard
 from src.components.footer import footer_dashboard
 from src.components.subject_card import subject_card
-from src.database.db import check_company_exists, create_company, company_login, get_company_subjects, get_attendance_for_company, get_all_employees_for_company, update_company_location, get_leave_requests_for_company, update_leave_status, update_employee_designation, update_attendance_status, review_flagged_attendance, log_audit_action, update_employee_rate, get_audit_logs_for_company
+from src.database.db import check_company_exists, create_company, company_login, get_company_subjects, get_attendance_for_company, get_all_employees_for_company, update_company_location, get_leave_requests_for_company, update_leave_status, update_employee_designation, update_attendance_status, review_flagged_attendance, log_audit_action, update_employee_rate, get_audit_logs_for_company, create_staff_account, get_staff_accounts, delete_staff_account
 from src.components.dialog_create_subject import create_subject_dialog
 from src.components.dialog_add_photo import add_photos_dialog
 from src.components.dialog_share_subject import share_subject_dialog
@@ -28,10 +28,10 @@ def company_screen():
 
     if "company_data" in st.session_state:
         company_dashboard()
-    elif 'company_login_type' not in st.session_state or st.session_state.company_login_type=="login":
+    else:
+        # Single-tenant deployment: company self-registration is disabled, so
+        # the only entry point is the login screen for the existing company.
         company_screen_login()
-    elif st.session_state.company_login_type == "register":
-        company_screen_register()
 
 def company_dashboard():
     company_data = st.session_state.company_data
@@ -55,7 +55,7 @@ def company_dashboard():
     """, unsafe_allow_html=True)
 
     # Simple native tabs — equal width, icons aligned, zero CSS fighting
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
         "📸 Attendance",
         "📋 Projects",
         "👥 Employees",
@@ -66,6 +66,7 @@ def company_dashboard():
         "🔍 Audit",
         "📊 Analytics",
         "⚖️ Overrides",
+        "👔 Managers & HR",
     ])
 
     with tab1:
@@ -88,8 +89,62 @@ def company_dashboard():
         company_tab_analytics()
     with tab10:
         company_tab_overrides()
+    with tab11:
+        company_tab_staff_accounts()
 
     footer_dashboard()
+
+def company_tab_staff_accounts():
+    st.header('Managers & HR Accounts')
+    company_id = st.session_state.company_data['company_id']
+
+    st.info(
+        "Create login profiles for your Managers and HR staff. They sign in "
+        "with these credentials on **both** this web dashboard and the "
+        "**Lumenor HRMS mobile app** (Manager / HR Admin roles)."
+    )
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader('Add a Manager / HR profile')
+        with st.form('add_staff_form', clear_on_submit=True):
+            s_name = st.text_input('Full name', placeholder='e.g. Anjali Nair')
+            s_email = st.text_input('Email (optional)', placeholder='anjali@company.com')
+            s_username = st.text_input('Username', placeholder='anjali.hr')
+            s_password = st.text_input('Password', type='password', placeholder='Set a password')
+            s_role = st.selectbox('Role', options=['manager', 'hr'],
+                                   format_func=lambda r: 'Manager' if r == 'manager' else 'HR Admin')
+            if st.form_submit_button('Create account', type='primary', use_container_width=True):
+                ok, msg = create_staff_account(company_id, s_name, s_username, s_password, s_role, s_email)
+                if ok:
+                    log_audit_action('create_staff_account', company_id, 'company',
+                                     {'username': s_username, 'role': s_role})
+                    st.success(msg)
+                    import time
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error(msg)
+
+    with col2:
+        st.subheader('Existing profiles')
+        staff = get_staff_accounts(company_id)
+        if not staff:
+            st.caption('No Manager/HR profiles yet. Create one on the left.')
+        else:
+            for s in staff:
+                with st.container(border=True):
+                    c1, c2 = st.columns([4, 1])
+                    with c1:
+                        role_label = 'Manager' if s['role'] == 'manager' else 'HR Admin'
+                        st.markdown(f"**{s['name']}** · `{role_label}`")
+                        st.caption(f"@{s['username']}" + (f" · {s['email']}" if s.get('email') else ''))
+                    with c2:
+                        if st.button('Remove', key=f"del_staff_{s['id']}", type='secondary'):
+                            delete_staff_account(s['id'])
+                            log_audit_action('delete_staff_account', company_id, 'company',
+                                             {'username': s['username']})
+                            st.rerun()
 
 def company_tab_overrides():
     st.header('Attendance Overrides (HR Review Queue)')
@@ -382,28 +437,43 @@ def company_tab_attendance_records():
     
     data = []
 
+    # The mobile app stores timestamps in UTC and displays them in the device's
+    # local time (IST). Streamlit Cloud runs in UTC, so we must convert to IST
+    # before formatting — otherwise the web "Check-In Time" shows e.g. 08:57 AM
+    # where the phone correctly shows 02:27 PM for the same record.
+    LOCAL_TZ = "Asia/Kolkata"
+
+    def safe_format_date(date_val, fmt="%Y-%m-%d %I:%M %p"):
+        if not date_val or str(date_val).strip().lower() in ['none', 'null', 'n/a', '']:
+            return "N/A"
+        try:
+            dt_str = str(date_val).replace("Z", "+00:00")
+            # utc=True treats naive (legacy) strings as UTC and keeps aware
+            # strings correct; then convert to local for display.
+            return (
+                pd.to_datetime(dt_str, utc=True)
+                .tz_convert(LOCAL_TZ)
+                .strftime(fmt)
+            )
+        except Exception:
+            return "Invalid Date"
+
     for r in records:
-        ts = r.get('timestamp')
-        check_out = r.get('checkout_time')
-        
-        def safe_format_date(date_val, fmt="%Y-%m-%d %I:%M %p"):
-            if not date_val or str(date_val).strip().lower() in ['none', 'null', 'n/a', '']:
-                return "N/A"
-            try:
-                dt_str = str(date_val).replace("Z", "+00:00")
-                return pd.to_datetime(dt_str).strftime(fmt)
-            except Exception:
-                return "Invalid Date"
+        # Prefer the canonical geofencing columns; fall back to legacy ones so
+        # older rows still render.
+        check_in = r.get('check_in_time') or r.get('timestamp')
+        check_out = r.get('check_out_time') or r.get('checkout_time')
+        status = r.get('attendance_status') or r.get('location_status') or 'Unknown'
 
         data.append({
             "id": r.get('id'),
-            "ts_group": str(ts).split(".")[0] if ts else None,
-            "Check-In Time": safe_format_date(ts),
+            "ts_group": str(check_in).split(".")[0] if check_in else None,
+            "Check-In Time": safe_format_date(check_in),
             "Check-Out Time": safe_format_date(check_out) if check_out else "Still Active",
             "Project": r['subjects']['name'],
             "Employee": r['employee_name'],
             "is_present": bool(r.get('is_present', False)),
-            "Status": r.get('location_status', 'Unknown')
+            "Status": status,
         })
 
     df = pd.DataFrame(data)
@@ -465,7 +535,11 @@ def company_tab_attendance_records():
     
     st.divider()
     st.subheader("Flagged Events & Overrides")
-    flagged_df = df[(~df['is_present']) | (df['Status'] == 'Outside Office') | (df['Status'] == 'Unknown')]
+    # Pending HR review = records the mobile geofence flagged and that HR has
+    # not yet resolved. Approved->'Present' and rejected->'Rejected' are already
+    # decided, so exclude them (the old 'Outside Office' value never existed in
+    # attendance_status, and keying on ~is_present re-surfaced rejected rows).
+    flagged_df = df[df['Status'] == 'Flagged']
     
     if flagged_df.empty:
         st.success("No flagged events found! All records seem normal.")
@@ -509,20 +583,13 @@ def company_tab_attendance_records():
         
     with dl_col2:
         pdf_bytes_raw = generate_pdf_report(display_df, summary)
-        
-        # 3. Print the type of that variable for debugging
-        print("DEBUG: Type of raw PDF data:", type(pdf_bytes_raw))
-        
-        # 4. If the variable is a bytearray, convert it to bytes
+
+        # FPDF may return a bytearray; the download button needs plain bytes.
         if isinstance(pdf_bytes_raw, bytearray):
             download_data = bytes(pdf_bytes_raw)
-            print("DEBUG: Converted bytearray to standard bytes.")
         else:
             download_data = pdf_bytes_raw
-            
-        print("DEBUG: Final type passed to button:", type(download_data))
-        
-        # 6. Update the download button (Keeping PDF mime instead of XLSX since it's a PDF generator)
+
         st.download_button(
             label="Download PDF Report",
             data=download_data,
@@ -607,18 +674,37 @@ def company_tab_analytics():
     import plotly.express as px
     
     df = pd.DataFrame(records)
-    
-    # KPI Cards
-    today = pd.Timestamp.now().strftime('%Y-%m-%d')
-    today_records = df[df['timestamp'].str.startswith(today, na=False)] if not df.empty else pd.DataFrame()
-    
-    present_today = len(today_records)
+
+    # KPI Cards. Timestamps are stored UTC; bucket "today" in local time (IST)
+    # so the count matches what employees see on the mobile app.
+    LOCAL_TZ = "Asia/Kolkata"
+    # Use check_in_time when present, else the legacy timestamp column.
+    base_ts = df['check_in_time'] if 'check_in_time' in df.columns else df['timestamp']
+    if 'check_in_time' in df.columns and 'timestamp' in df.columns:
+        base_ts = df['check_in_time'].fillna(df['timestamp'])
+    local_dt = pd.to_datetime(
+        base_ts.astype(str).str.replace('Z', '+00:00'),
+        errors='coerce', utc=True,
+    ).dt.tz_convert(LOCAL_TZ)
+    df['_local_date'] = local_dt.dt.date
+    today = pd.Timestamp.now(tz=LOCAL_TZ).date()
+
+    status = df.get('attendance_status')
+    is_present = df.get('is_present')
+    present_mask = (df['_local_date'] == today)
+    if is_present is not None:
+        present_mask = present_mask & df['is_present'].fillna(False).astype(bool)
+
+    # Present today = distinct employees actually counted present today.
+    present_today = int(df.loc[present_mask, 'employee_id'].nunique())
     total_records = len(df)
-    
+    pending_flagged = int((df.get('attendance_status') == 'Flagged').sum()) if status is not None else 0
+
     col1, col2, col3 = st.columns(3)
     col1.metric("Present Today", present_today)
     col2.metric("Total Recorded Checks", total_records)
-    
+    col3.metric("Pending HR Review", pending_flagged)
+
     # Simple Chart
     st.subheader("Attendance Over Time")
     # Clean the timestamp and enforce UTC to guarantee a datetime64 series that has the .dt accessor
@@ -701,11 +787,9 @@ def company_screen_login():
         else:
             st.error("Invalid username and password combo")
 
-    btnc1, btnc2 = st.columns(2)
-    with btnc1:
-        pass
-        if st.button('Register Instead', type="primary", icon=':material/passkey:', use_container_width=True):
-            st.session_state.company_login_type = 'register'
+    # Single-tenant deployment: company self-registration is disabled. Only the
+    # existing company can log in here; new employees join via the mobile app.
+    st.caption("Company registration is managed by the administrator.")
 
     footer_dashboard()
 

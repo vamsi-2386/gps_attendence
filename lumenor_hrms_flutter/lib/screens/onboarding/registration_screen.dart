@@ -182,23 +182,20 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                   validator: Validators.validateInviteCode,
                 ),
                 const SizedBox(height: AppTheme.spacingSmall),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: SizedBox(
-                    width: 160,
-                    child: ThemedButton(
-                      label: _companyId != null ? 'Validated' : 'Validate code',
-                      onPressed: _resolveCompany,
-                      isLoading: _resolvingCompany,
-                      height: 42,
-                      icon: _companyId != null
-                          ? Icons.check_circle
-                          : Icons.search,
-                      backgroundColor: _companyId != null
-                          ? AppTheme.successColor
-                          : AppTheme.primaryColor,
-                    ),
-                  ),
+                // Full-width below the invite-code field: responsive on every
+                // screen size, no truncation of the icon + "Validate Code".
+                ThemedButton(
+                  label: _companyId != null ? 'Validated' : 'Validate Code',
+                  onPressed: _resolveCompany,
+                  isLoading: _resolvingCompany,
+                  height: 48,
+                  icon: _companyId != null ? Icons.check_circle : Icons.search,
+                  backgroundColor: _companyId != null
+                      ? AppTheme.successColor
+                      : AppTheme.primaryColor,
+                  // Force white label/icon so the text is never washed out by
+                  // the button fill on any device/theme.
+                  textColor: AppTheme.white,
                 ),
                 if (_companyError != null) ...[
                   const SizedBox(height: AppTheme.spacingXSmall),
