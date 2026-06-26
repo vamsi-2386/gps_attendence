@@ -9,7 +9,17 @@
 	<key>CFBundleDisplayName</key>
 	<string>Lumenor HRMS</string>
 	<key>MinimumOSVersion</key>
-	<string>12.0</string>
+	<string>15.5</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Lumenor HRMS uses the camera to capture your face for attendance verification.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Lumenor HRMS may use the microphone while the camera is active for face capture.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Lumenor HRMS uses your location to verify you are inside the office geofence when you clock in or out.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Lumenor HRMS uses your location to verify you are inside the office geofence when you clock in or out.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Lumenor HRMS lets you choose an employee photo from your library.</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
