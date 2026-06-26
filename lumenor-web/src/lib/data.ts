@@ -34,13 +34,45 @@ export async function getCompany(companyId: number): Promise<Company | null> {
 // ---- Employees -----------------------------------------------------------
 
 export async function getEmployees(companyId: number): Promise<Employee[]> {
-  const { data, error } = await supabase
+  const base = 'employee_id, employee_code, name, designation, role, daily_rate, office_id, mobile, email'
+  // Try with photo_url; if the column doesn't exist yet (migration not run),
+  // fall back so the page never breaks.
+  let res = await supabase
     .from('employees')
-    .select('employee_id, employee_code, name, designation, role, daily_rate, office_id, mobile, email')
+    .select(`${base}, photo_url`)
     .eq('company_id', companyId)
     .order('name')
-  if (error) throw error
-  return (data ?? []) as Employee[]
+  if (res.error) {
+    res = await supabase.from('employees').select(base).eq('company_id', companyId).order('name')
+  }
+  if (res.error) throw res.error
+  return (res.data ?? []) as Employee[]
+}
+
+/** Upload an employee photo to the 'employee-photos' Storage bucket; returns the
+ * public URL, or null if Storage isn't set up (best-effort — never blocks
+ * registration). */
+export async function uploadEmployeePhoto(code: string, file: File): Promise<string | null> {
+  try {
+    const path = `${code.replace(/[^A-Za-z0-9_-]/g, '_')}.jpg`
+    const { error } = await supabase.storage
+      .from('employee-photos')
+      .upload(path, file, { upsert: true, contentType: file.type || 'image/jpeg' })
+    if (error) return null
+    const { data } = supabase.storage.from('employee-photos').getPublicUrl(path)
+    return data?.publicUrl ?? null
+  } catch {
+    return null
+  }
+}
+
+/** Best-effort: store the photo URL on the employee (ignored if column absent). */
+export async function setEmployeePhoto(employeeId: number, url: string): Promise<void> {
+  try {
+    await supabase.from('employees').update({ photo_url: url }).eq('employee_id', employeeId)
+  } catch {
+    /* photo_url column not present yet — ignore */
+  }
 }
 
 export async function registerEmployee(input: {
@@ -52,7 +84,7 @@ export async function registerEmployee(input: {
   officeId?: number | null
   mobile?: string
   email?: string
-}): Promise<{ ok: boolean; message: string }> {
+}): Promise<{ ok: boolean; message: string; employeeId?: number }> {
   if (!input.employeeCode.trim() || !input.name.trim()) {
     return { ok: false, message: 'Employee code and name are required.' }
   }
@@ -61,19 +93,23 @@ export async function registerEmployee(input: {
     .select('employee_id')
     .eq('employee_code', input.employeeCode.trim())
   if (dup && dup.length) return { ok: false, message: 'That employee code already exists.' }
-  const { error } = await supabase.from('employees').insert({
-    company_id: input.companyId,
-    employee_code: input.employeeCode.trim(),
-    name: input.name.trim(),
-    designation: input.designation.trim() || 'Employee',
-    daily_rate: input.dailyRate || 0,
-    role: 'employee',
-    office_id: input.officeId ?? null,
-    mobile: input.mobile?.trim() || null,
-    email: input.email?.trim() || null,
-  })
+  const { data, error } = await supabase
+    .from('employees')
+    .insert({
+      company_id: input.companyId,
+      employee_code: input.employeeCode.trim(),
+      name: input.name.trim(),
+      designation: input.designation.trim() || 'Employee',
+      daily_rate: input.dailyRate || 0,
+      role: 'employee',
+      office_id: input.officeId ?? null,
+      mobile: input.mobile?.trim() || null,
+      email: input.email?.trim() || null,
+    })
+    .select('employee_id')
+    .single()
   if (error) return { ok: false, message: error.message }
-  return { ok: true, message: 'Employee registered.' }
+  return { ok: true, message: 'Employee registered.', employeeId: data?.employee_id as number }
 }
 
 export async function updateDesignation(employeeId: number, designation: string): Promise<void> {

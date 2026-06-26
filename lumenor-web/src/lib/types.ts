@@ -26,6 +26,7 @@ export interface Employee {
   office_id?: number | null
   mobile?: string | null
   email?: string | null
+  photo_url?: string | null
 }
 
 export interface AttendanceLog {
