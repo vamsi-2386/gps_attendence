@@ -35,7 +35,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: companies } = await supabase
       .from('companys')
       .select('id, name, username, password')
-      .eq('username', u)
+      .ilike('username', u)
       .limit(1)
     if (companies && companies.length) {
       const c = companies[0] as { id: number; name: string; username: string; password: string }
@@ -48,7 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: staff } = await supabase
       .from('staff_accounts')
       .select('id, company_id, name, username, password, role')
-      .eq('username', u)
+      .ilike('username', u)
       .limit(1)
     if (staff && staff.length) {
       const s = staff[0] as {
